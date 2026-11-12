@@ -78,3 +78,22 @@ dialog{border:0;border-radius:18px;padding:0;width:min(580px,95vw);max-height:92
 .skel{padding:4px 0}.skel i{display:block;height:64px;border-radius:14px;margin-bottom:12px;background:linear-gradient(90deg,#EAF1FB 25%,#F5F8FD 50%,#EAF1FB 75%);background-size:200% 100%;animation:shim 1.2s linear infinite}
 .skel p{color:var(--muted);text-align:center;margin:10px 0}@keyframes shim{to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){#bar.on::after,.spin,.skel i{animation-duration:2.5s}}
+
+/* ---- responsive feel: every control reacts instantly ---- */
+html{-webkit-tap-highlight-color:rgba(6,71,151,.14)}
+button,.btn,a.nav,.pitem,select,input,[role=button],.bottom a,.menu a{touch-action:manipulation}
+button,.btn,.pitem,.bottom a,.menu a,a.nav{transition:transform .09s ease,background-color .12s ease,box-shadow .12s ease,border-color .12s ease,opacity .12s ease;-webkit-user-select:none;user-select:none}
+.btn:hover{box-shadow:0 2px 8px rgba(6,71,151,.25)}.btn:active,.btn.press{transform:scale(.96);box-shadow:none;filter:brightness(.92)}
+.btn[disabled]:not(.busy){opacity:.45;cursor:not-allowed;box-shadow:none}
+.pitem:active,.pitem.press{transform:scale(.96);background:var(--tint);border-color:var(--blue)}.pitem:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(6,71,151,.15)}
+.bottom a:active,.menu a:active,a.nav:active{transform:scale(.95);background:var(--tint)}
+.qty button:active{transform:scale(.88);background:var(--tint)}
+:focus-visible{outline:3px solid #F5A623;outline-offset:2px;border-radius:8px}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(6,71,151,.16);outline:none}
+@media (max-width:899px){.btn{min-height:46px}.btn.sm{min-height:40px}input,select{min-height:46px;font-size:16px}}
+#page.enter{animation:pgin .16s ease-out}@keyframes pgin{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
+.toast{display:flex;align-items:center;gap:10px;animation:tin .18s ease-out}.toast::before{font-weight:700;font-size:16px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.22);display:inline-grid;place-items:center;flex:none}
+.toast.ok::before{content:"✓"}.toast.err::before{content:"✕"}.toast.warn::before{content:"!"}
+@keyframes tin{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+.cbar.pop{animation:pop .2s ease-out}@keyframes pop{50%{transform:scale(1.04)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}#bar.on::after,.spin,.skel i{animation-duration:2.5s!important;animation-iteration-count:infinite!important}}

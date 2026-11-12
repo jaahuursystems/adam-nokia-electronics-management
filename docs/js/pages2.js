@@ -1,7 +1,7 @@
 /* Pages: branch collections + reconciliation, purchasing (suppliers, purchase orders) */
 (function () {
   'use strict';
-  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, tabs, curTab, q, api, can, toast, modal, closeModal, act, formDlg } = A, PG = A.PAGES, st = A.state;
+  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, tabs, curTab, q, api, apiQ, can, toast, modal, closeModal, act, formDlg } = A, PG = A.PAGES, st = A.state;
   const P = id => A.S.products.find(p => p.id === id);
   const ST = { PENDING: ['Pending', 'gray'], SOLD: ['Sold', 'ok'], RETURN_REPORTED: ['Returned — awaiting inspection', 'warn'], RETURN_INSPECTED: ['Inspected — awaiting approval', 'warn'], RETURNED_APPROVED: ['Returned to stock', 'ok'], RETURN_REJECTED: ['Return rejected', 'bad'] };
   const sched = b => b.cycle === 'WEEKLY' ? `Weekly cycle: collections run Wednesday to Tuesday. The report is generated on Tuesday, the branch reviews pending items on Wednesday, and payment is due ${b.due_offset_days} day(s) after the period ends (end of Wednesday).` : `Daily cycle: one consolidated report at the end of each collection day. ${b.due_offset_days ? 'Pending items are updated the next day, which produces a revised/final report. Payment is due at the end of the following day.' : 'Payment is due at the end of the same day.'}`;

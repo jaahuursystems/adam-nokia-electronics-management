@@ -1,7 +1,7 @@
 /* Pages: dashboard, sell (POS), sales & invoices, inventory, customers */
 (function () {
   'use strict';
-  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, q, api, can, toast, modal, closeModal, act, formDlg, csv } = A, PG = A.PAGES, st = A.state;
+  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, q, api, apiQ, can, toast, modal, closeModal, act, formDlg, csv } = A, PG = A.PAGES, st = A.state;
   const P = id => A.S.products.find(p => p.id === id), C = id => A.S.customers.find(c => c.id === id);
   const CAT = { WALK_IN: 'Walk-in', TECHNICIAN: 'Technician / Repair Shop', BUSINESS: 'Business Account' };
 

@@ -92,7 +92,7 @@
   }
   /* Priority queue: anything the person is waiting for (saves, sign-in, a tab with nothing cached) always goes BEFORE background refreshes;
      background refreshes for a tab the person has already left are skipped. */
-  const queue = []; let running = false;
+  const queue = []; let running = false, fgRunning = false;
   function call(action, payload, txn, opts) { opts = opts || {}; return new Promise((res, rej) => { queue.push({ a: action, p: payload, t: txn, bg: !!opts.bg, stale: opts.stale, res, rej }); pump(); }); }
   async function pump() {
     if (running) return; running = true;
@@ -100,7 +100,7 @@
       while (queue.length) {
         let i = queue.findIndex(x => !x.bg); if (i < 0) i = 0; const x = queue.splice(i, 1)[0];
         if (x.stale && x.stale()) { x.rej(makeError('STALE', 'Skipped')); continue; }
-        try { x.res(await rawCall(x.a, x.p, x.t)); } catch (e) { x.rej(e); }
+        fgRunning = !x.bg; try { x.res(await rawCall(x.a, x.p, x.t)); } catch (e) { x.rej(e); } finally { fgRunning = false; }
       }
     } finally { running = false; }
   }
@@ -318,7 +318,7 @@
   /* ---- shell ---- */
   const NAV = [['dashboard', 'Dashboard', null], ['pos', 'Sell', 'sales.create'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['branches', 'Branch Collections', 'branch.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
   APP.NAV = NAV;
-  let renderSeq = 0;
+  let renderSeq = 0, lastRoute = null;
   function routeTasks(route) {
     if (!APP.S) return [];
     const t = today(), tasks = [], add = (a, p) => tasks.push([a, p || {}]);
@@ -350,6 +350,7 @@
     $('#syncstat').onclick = () => openSyncQueue(); $('#syncstat').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') openSyncQueue(); };
     updateSyncIndicator();
     $$('[data-tab]').forEach(b => b.onclick = () => { APP.state.tab[b.dataset.page] = b.dataset.tab; render(); }); bindRange();
+    { const pgEl = $('#page'); if (pgEl && lastRoute !== APP.route) { pgEl.classList.add('enter'); setTimeout(() => pgEl.classList.remove('enter'), 250); } lastRoute = APP.route; }
     if (!loading) try { if (pg.bind) pg.bind(); } catch (e) { console.error(e); toast(e.message, 'err'); }
   }
   /* Show the page at once from what we already have; fetch what is missing / out of date in the background and repaint only if it changed. */
@@ -366,6 +367,19 @@
     }).catch(e => { if (seq !== renderSeq) return; if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) return; if (missing.length) { paint(false); } if (!missing.length) return; toast(e.message || 'Could not load this page.', 'err'); });
   }
   APP.render = render;
+  /* ---- every tap gets immediate feedback ---- */
+  (function tapFeedback() {
+    const fgBusy = () => running ? fgRunning || queue.some(x => !x.bg) : queue.some(x => !x.bg);
+    document.addEventListener('touchstart', () => { }, { passive: true });   /* lets :active work on iOS */
+    document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button,.btn,.pitem'); if (b && !b.disabled) { b.classList.add('press'); if (navigator.vibrate) try { navigator.vibrate(8); } catch (x) { } setTimeout(() => b.classList.remove('press'), 160); } }, true);
+    let lastB = null, lastT = 0;
+    document.addEventListener('click', e => {
+      const b = e.target.closest && e.target.closest('button.btn'); if (!b || b.hasAttribute('data-close')) return;
+      if (b.classList.contains('busy') || b.disabled) { e.stopImmediatePropagation(); e.preventDefault(); return; }       /* ignore repeated taps while working */
+      const now = Date.now(); if (b === lastB && now - lastT < 700 && fgBusy()) { e.stopImmediatePropagation(); e.preventDefault(); return; } lastB = b; lastT = now;
+      setTimeout(() => { if (b.isConnected && !b.classList.contains('busy') && fgBusy()) { busyBtn(b, true); const iv = setInterval(() => { if (!fgBusy() || !b.isConnected) { clearInterval(iv); busyBtn(b, false); } }, 120); } }, 140);
+    }, true);
+  })();
   APP.PAGES.more = { title: 'All modules', html() { return `<div class="menu">${NAV.filter(n => n[0] !== 'dashboard' && (!n[2] || can(n[2]))).map(n => `<a href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<a href="#" id="lo2">${ic('logout')}Sign out</a></div>`; }, bind() { $('#lo2').onclick = e => { e.preventDefault(); APP.logout(); }; } };
 
   /* After the first screen is up, quietly load the other tabs (one small request each, only when the app is idle) so switching tabs is instant. */

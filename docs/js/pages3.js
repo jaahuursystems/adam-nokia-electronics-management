@@ -1,7 +1,7 @@
 /* Pages: finance, reports, smart insights, staff & permissions, settings, audit */
 (function () {
   'use strict';
-  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, tabs, curTab, q, api, can, toast, modal, closeModal, act, formDlg, csv } = A, PG = A.PAGES, st = A.state;
+  const A = APP, { $, $$, esc, num, usd, slsh, dt, dkey, badge, kpi, table, tabs, curTab, q, api, apiQ, can, toast, modal, closeModal, act, formDlg, csv } = A, PG = A.PAGES, st = A.state;
   function reportTable(r) {
     const R = c => (c[2] === 'usd' || c[2] === 'int') ? 'right' : '', cell = (v, t) => t === 'usd' ? usd(v) : t === 'int' ? num(v) : esc(v == null ? '' : v), noTot = /^Finance summary/.test(r.title);
     const rows = r.rows.map(x => `<tr>${r.columns.map(c => `<td class="${R(c)}">${cell(x[c[0]], c[2])}</td>`).join('')}</tr>`).join('') + (r.totals && !noTot && r.rows.length > 1 ? `<tr class="tot">${r.columns.map((c, i) => `<td class="${R(c)}">${r.totals[c[0]] != null ? cell(r.totals[c[0]], c[2]) : i === 0 ? 'Total' : ''}</td>`).join('')}</tr>` : '');
