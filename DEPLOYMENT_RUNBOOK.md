@@ -1,0 +1,2 @@
+# Deployment runbook (draft)
+Staging: create Apps Script project, set `SHEET_ID` property to the staging sheet, paste `apps-script/*`, deploy web app, put `/exec` URL in staging `docs/js/config.js`. Do NOT run initializeDatabase on any sheet containing data. Production: same, separate project/sheet, only after owner approval. Rollback: redeploy previous script version and restore the latest backup copy. Full click-by-click steps to follow with the staging package.

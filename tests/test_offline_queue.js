@@ -1,0 +1,44 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const values = new Map();
+const db={objectStoreNames:{contains:n=>n==='kv'},createObjectStore:()=>{},transaction:()=>{const tx={};const os={get(key){const r={};setTimeout(()=>{r.result=values.get(key);r.onsuccess&&r.onsuccess();},0);return r;},put(value,key){setTimeout(()=>{values.set(key,value);tx.oncomplete&&tx.oncomplete();},0);return {};},delete(key){setTimeout(()=>{values.delete(key);tx.oncomplete&&tx.oncomplete();},0);return {};}};tx.objectStore=()=>os;return tx;}};
+const indexedDB={open:()=>{const r={result:db};setTimeout(()=>{r.onupgradeneeded&&r.onupgradeneeded();r.onsuccess&&r.onsuccess();},0);return r;}};
+const navigator={onLine:false};
+const localStorage={ane_device:'DEV-TEST-0001'};
+const sessionStorage={getItem:()=> 'TEST-TOKEN',setItem:()=>{},removeItem:()=>{}};
+const document={querySelector:()=>null,querySelectorAll:()=>[],createElement:()=>({}),body:{appendChild:()=>{}}};
+const window={ANE_CONFIG:{API_URL:'https://staging.example/exec'},addEventListener:()=>{}};
+const crypto={randomUUID:()=> '12345678-1234-1234-1234-123456789abc'};
+const requests=[]; let rejectNext=false;
+const context={window,document,navigator,localStorage,sessionStorage,indexedDB,crypto,fetch:async(url,opts)=>{const req=JSON.parse(opts.body);requests.push(req.action);if(rejectNext && req.action==='branch.collect'){rejectNext=false;return {ok:true,json:async()=>({ok:false,error:{code:'INSUFFICIENT_STOCK',message:'Not enough stock at sync time'}})};}const data=req.action==='data.snapshot' ? {
+  me:{id:'U-001',name:'Employee',role:'employee',perms:[]},products:[{id:'ITM-1',available:10,held:0,price_usd_cents:1000}],customers:[{id:'CUS-1',customer_credit_outstanding_usd_cents:0,outstanding_usd_cents:0}],branches:[{id:'BR-1',name:'Branch One'}],people:[{id:'P-1',name:'Assistant'},{id:'P-2',name:'Technician'}],collItems:[],methods:[],rateHistory:[{id:'R-1',pair:'USD_SLSH',rate:11750}],rates:{USD_SLSH:11750}
+}:{};return {ok:true,json:async()=>({ok:true,data})};},console,Date,Intl,Math,JSON,URL,setTimeout,clearTimeout,Promise,Error,TypeError,Map,Set,Array,Object,String,Number,RegExp,parseInt,encodeURIComponent};
+vm.runInNewContext(fs.readFileSync(__dirname+'/../docs/js/core.js','utf8'),context);
+(async()=>{
+ const A=context.window.APP;
+ A.token='TEST-TOKEN'; A.S={me:{id:'U-001',name:'Employee',perms:[]},products:[{id:'ITM-1',available:10,held:0,price_usd_cents:1000}],customers:[{id:'CUS-1',customer_credit_outstanding_usd_cents:0,outstanding_usd_cents:0}],branches:[{id:'BR-1',name:'Branch One'}],people:[{id:'P-1',name:'Assistant'},{id:'P-2',name:'Technician'}],collItems:[],methods:[{id:'CREDIT',currency:'USD'}],rateHistory:[{id:'R-1',pair:'USD_SLSH',rate:11750}],rates:{USD_SLSH:11750}};
+ const c=await A.apiQ('branch.collect',{branch_id:'BR-1',assistant_id:'P-1',technician_id:'P-2',items:[{product_id:'ITM-1',qty:2},{product_id:'ITM-1',qty:1}]});
+ assert.equal(c.queued,true); assert.equal(A.S.products[0].available,7); assert.equal(A.S.products[0].held,3); assert.equal(A.S.collItems.length,1,'duplicate product lines are grouped into one stable offline item');
+ const item=A.S.collItems[0];
+ const s=await A.apiQ('branch.setItemStatus',{item_id:item.id,status:'SOLD',qty:1});
+ assert.equal(s.queued,true); assert.equal(A.S.collItems.length,2); assert.equal(A.S.products[0].held,2);
+ const sale=await A.apiQ('sales.create',{customer_id:'CUS-1',method_id:'CREDIT',items:[{product_id:'ITM-1',qty:1}]});
+ assert.equal(sale.queued,true); assert.equal(A.S.products[0].available,6); assert.equal(A.S.customers[0].customer_credit_outstanding_usd_cents,1000);
+ const outbox=await A.IDB.get('outbox'); assert.equal(outbox.length,3); assert.equal(new Set(outbox.map(x=>x.client_txn_id)).size,3);
+ assert.ok(outbox.every(x=>x.user_id==='U-001'));
+ navigator.onLine=true; A.isOffline=false;
+ await A.syncQueue();
+ assert.deepEqual(requests.slice(0,4),['branch.collect','branch.setItemStatus','sales.create','data.snapshot']);
+ assert.equal((await A.IDB.get('outbox')).length,0,'successful sync clears the queue');
+ navigator.onLine=false; A.isOffline=true;
+ const c2=await A.apiQ('branch.collect',{branch_id:'BR-1',assistant_id:'P-1',technician_id:'P-2',items:[{product_id:'ITM-1',qty:1}]});
+ const item2=A.S.collItems[0]; await A.apiQ('branch.setItemStatus',{item_id:item2.id,status:'SOLD',qty:item2.qty});
+ navigator.onLine=true; A.isOffline=false; rejectNext=true; requests.length=0; await A.syncQueue();
+ const conflicted=await A.IDB.get('outbox'); assert.equal(conflicted.length,2); assert.equal(conflicted[0].status,'CONFLICT'); assert.equal(conflicted[1].status,'QUEUED'); assert.deepEqual(requests,['branch.collect','data.snapshot'],'a conflict must stop later dependent actions');
+ requests.length=0; await A.syncQueue(); assert.equal((await A.IDB.get('outbox')).length,0); assert.deepEqual(requests,['branch.collect','branch.setItemStatus','data.snapshot']);
+ console.log('PASS: offline branch collection groups products and creates stable IDs');
+ console.log('PASS: dependent branch status and POS sale queue in order with local stock/credit updates');
+ console.log('PASS: sync replays transactions sequentially and clears the outbox after server acknowledgement');
+ console.log('PASS: a stock conflict pauses later dependent transactions until the user retries or discards it');
+})().catch(e=>{console.error(e);process.exitCode=1;});
