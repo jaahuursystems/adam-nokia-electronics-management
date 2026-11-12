@@ -4,4 +4,4 @@
 - Owner approved the resource plan; chose public repo, simple login, wallets from recorded transactions only, optional barcodes with camera scanning.
 - Created new private Drive structure (`ANE Staging`, `ANE Production`, each with Documents / Receipts / Expense attachments / Backups) and two empty spreadsheets (`ANE Staging DB`, `ANE Production DB`). IDs kept out of this repo.
 - Initial commit: frontend → `docs/`, backend → `apps-script/`, tests → `tests/`. Removed the shop's real phone/email from default settings. All 16 supplied tests pass locally.
-- Not done yet: Apps Script projects (owner must create; no tool access), deployments, any new features.
+- Seed no longer invents exchange rates (new test). Added fake staging seed (`staging/SeedData.gs`) and `tools/bundle.sh`.

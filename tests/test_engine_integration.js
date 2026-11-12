@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const ANE = require('../apps-script/Engine.gs');
 let clock = new Date('2026-11-12T07:00:00.000Z');
 const src = {
-  aed_per_usd: 3.6725,
+  aed_per_usd: 3.6725, usd_slsh: 11750, /* test-only fake rates */
   staff: [
     ['U-001','Owner One','owner.one','owner'],
     ['U-002','Manager One','manager.one','manager'],

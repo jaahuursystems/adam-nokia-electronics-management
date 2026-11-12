@@ -114,16 +114,17 @@
     Object.keys(ROLE_PERMS).forEach(function (r) { db.roles[r] = { id: r, perms: ROLE_PERMS[r] }; });
     db.settings = { business_name: 'Adam Nokia Electronics', phone: '', address: 'Hargeisa, Somaliland', email: '', website: '',
       timezone_offset_min: 180, default_min_stock: 3, reorder_cover_days: 30, expense_categories: EXP_CATS.slice(), credit_customer_name: 'Aadan Nokia Repairing and Software Solutions' };
-    db.rates.push({ id: 'RATE-0001', pair: 'USD_SLSH', rate: 11750, previous: null, effective_at: iso, by: 'SYSTEM', note: 'Initial rate supplied by owner' });
-    db.rates.push({ id: 'RATE-0002', pair: 'AED_USD', rate: src.aed_per_usd, previous: null, effective_at: iso, by: 'SYSTEM', note: 'From inventory spreadsheet' });
+    /* Exchange rates are NEVER invented: they exist only if the seed supplies them; otherwise the manager must set them (rates.set). */
+    if (src.usd_slsh > 0) db.rates.push({ id: 'RATE-0001', pair: 'USD_SLSH', rate: src.usd_slsh, previous: null, effective_at: iso, by: 'SYSTEM', note: 'Initial rate from seed' });
+    if (src.aed_per_usd > 0) db.rates.push({ id: 'RATE-0002', pair: 'AED_USD', rate: src.aed_per_usd, previous: null, effective_at: iso, by: 'SYSTEM', note: 'Initial rate from seed' });
     (src.staff || []).forEach(function (u) { db.users.push({ id: u[0], full_name: u[1], username: u[2], role: u[3], status: 'active', password_hash: null, salt: null, failed: 0, locked_until: 0, setup_salt: null, setup_hash: null, setup_expires: 0, setup_failed: 0 }); });
     src.items.forEach(function (it, idx) {
-      var aedMinor = Math.round(it.unit_cost_aed * 100), usd = Math.round(aedMinor / src.aed_per_usd);
+      var aedMinor = Math.round((it.unit_cost_aed || 0) * 100), usd = src.aed_per_usd > 0 ? Math.round(aedMinor / src.aed_per_usd) : 0;
       db.products.push({ id: it.product_id, sku: it.sku, name: it.supplier_item_name, supplier_item_name: it.supplier_item_name, category: it.category, variant_tag: it.variant_tag,
-        model: it.model_derived, model_is_derived: true, cost_aed_minor: aedMinor, aed_usd_rate_snapshot: src.aed_per_usd, cost_usd_cents: usd,
-        price_usd_cents: Math.round(it.selling_price_usd * 100), min_stock: null, supplier_id: null, status: 'active' });
-      db.balances.push({ product_id: it.product_id, loc: 'AVAILABLE', qty: it.source_qty });
-      db.movements.push({ id: 'MOV-OPEN-' + pad(idx + 1, 4), product_id: it.product_id, type: 'OPENING', from: null, to: 'AVAILABLE', qty: it.source_qty, reason: 'Opening stock imported from Inventory_Costing_ORIGINAL.xlsx (owner confirmed on shelf)', ref: 'IMPORT', at: iso, by: 'SYSTEM' });
+        model: it.model_derived, model_is_derived: true, cost_aed_minor: aedMinor, aed_usd_rate_snapshot: src.aed_per_usd || null, cost_usd_cents: usd,
+        price_usd_cents: Math.round((it.selling_price_usd || 0) * 100), min_stock: null, supplier_id: null, status: 'active' });
+      db.balances.push({ product_id: it.product_id, loc: 'AVAILABLE', qty: it.source_qty || 0 });
+      db.movements.push({ id: 'MOV-OPEN-' + pad(idx + 1, 4), product_id: it.product_id, type: 'OPENING', from: null, to: 'AVAILABLE', qty: it.source_qty, reason: 'Opening stock', ref: 'IMPORT', at: iso, by: 'SYSTEM' });
     });
     db.customers.push({ id: 'CUS-WALKIN', name: 'Walk-in Customer', phone: '', category: 'WALK_IN', address: '', notes: 'System default for anonymous walk-in sales', credit_approved: false, credit_limit_usd_cents: 0, status: 'active', system: true });
     db.customers.push({ id: 'CUS-AANR', name: db.settings.credit_customer_name, phone: '', category: 'BUSINESS', address: '', notes: 'Independent business with 4 branches. Uses Branch Collections workflow.', credit_approved: false, credit_limit_usd_cents: 0, status: 'active', system: true });
