@@ -56,18 +56,23 @@ var Store = (function () {
     else if (t.kv === 'roles') { var q = {}; rows.forEach(function (r) { q[r.id] = { id: r.id, perms: r.perms }; }); db[t.key] = q; }
     else db[t.key] = rows;
   }
+  /* Formula-injection guard. Google Sheets evaluates text starting with "=" even in a plain-text-formatted cell when written through the API,
+     and "+", "-", "@" are formula triggers in Excel/CSV exports. Such text is stored with an invisible zero-width-space prefix and restored exactly on read. */
+  var ZW = '\u200B';
+  function encText(v) { var t = String(v); return /^[=+\-@\t\r\u200B]/.test(t) ? ZW + t : t; }
+  function decText(v) { var t = String(v); return t.charAt(0) === ZW ? t.slice(1) : t; }
   function cellOut(type, v) {
     if (type === 'n') return (v === null || v === undefined || v === '') ? '' : Number(v);
     if (type === 'b') return v === true;
     if (type === 'j') return (v === null || v === undefined) ? '' : JSON.stringify(v);
-    return (v === null || v === undefined) ? '' : String(v);
+    return (v === null || v === undefined) ? '' : encText(v);
   }
   function cellIn(type, v) {
     if (type === 'n') return v === '' ? null : Number(v);
     if (type === 'b') return v === true || v === 'TRUE' || v === 'true';
     if (type === 'j') return v === '' ? null : JSON.parse(v);
     if (v instanceof Date) return v.toISOString();
-    return v === '' ? '' : String(v);
+    return v === '' ? '' : decText(v);
   }
   function toRow(t, obj) {
     var known = {}; t.columns.forEach(function (c) { known[c.name] = 1; });
@@ -157,5 +162,5 @@ var Store = (function () {
     });
     SpreadsheetApp.flush();
   }
-  return { ss: ss, ensureSheets: ensureSheets, ensureExistingSchema: ensureExistingSchema, load: load, save: save };
+  return { ss: ss, ensureSheets: ensureSheets, ensureExistingSchema: ensureExistingSchema, load: load, save: save, encText: encText, decText: decText, _cell: { out: cellOut, inn: cellIn } };
 })();

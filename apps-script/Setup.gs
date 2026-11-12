@@ -71,10 +71,12 @@ function integrityCheckMenu() { var p = integrityCheck(); say_('Integrity check'
 
 /* Verifies on the REAL Sheets service that formats keep text exact (timestamps, leading zeros, "=" text) and numbers/booleans round-trip. */
 function selfTestMenu() {
-  var s = Store.ss(), sh = s.getSheetByName('_selftest') || s.insertSheet('_selftest'), vals = ['2026-11-05T09:00:00.000Z', '0600000000', '=1+1', '+252 63', 'ITM-001'];
-  sh.clear(); sh.getRange(1, 1, 5, 1).setNumberFormat('@'); sh.getRange(1, 1, 5, 1).setValues(vals.map(function (v) { return [v]; })); SpreadsheetApp.flush();
-  var back = sh.getRange(1, 1, 5, 1).getValues().map(function (r) { return r[0]; }), ok = vals.every(function (v, i) { return back[i] === v; });
-  s.deleteSheet(sh); say_('Sheets self-test', ok ? 'PASS: text values are stored exactly.' : 'FAIL: ' + JSON.stringify(back));
+  var s = Store.ss(), sh = s.getSheetByName('_selftest') || s.insertSheet('_selftest'), vals = ['2026-11-05T09:00:00.000Z', '0600000000', '=1+1', '+252 63', 'ITM-001', '-5 test', '@SUM(1)', '\u200Bx', ''];
+  sh.clear(); sh.getRange(1, 1, vals.length, 1).setNumberFormat('@');
+  sh.getRange(1, 1, vals.length, 1).setValues(vals.map(function (v) { return [Store.encText(v)]; })); SpreadsheetApp.flush();
+  var back = sh.getRange(1, 1, vals.length, 1).getValues().map(function (r) { return Store.decText(r[0]); }), ok = vals.every(function (v, i) { return back[i] === v; });
+  var formulas = sh.getRange(1, 1, vals.length, 1).getFormulas().filter(function (r) { return r[0] !== ''; }).length;
+  s.deleteSheet(sh); say_('Sheets self-test', (ok && formulas === 0) ? 'PASS: text (including text starting with = + - @) is stored exactly and no formulas were created.' : 'FAIL: ' + JSON.stringify(back) + ' formulas=' + formulas);
 }
 
 /* Private daily copy of the database in your own Drive (keeps 14). */
