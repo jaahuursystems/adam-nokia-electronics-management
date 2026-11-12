@@ -1,4 +1,4 @@
-const V='ane-shell-v4-production';
+const V='ane-shell-v5-production';
 const FILES=['./','index.html','manifest.webmanifest','css/app.css','js/config.js','js/core.js','js/docs.js','js/pages1.js','js/pages2.js','js/pages3.js','assets/logo/AdamNokia_Primary_FullColor.svg','assets/logo/AdamNokia_Secondary_Horizontal_FullColor.svg','assets/icons/favicon.svg','assets/icons/AdamNokia_icon_192x192.png','assets/icons/AdamNokia_icon_512x512.png','assets/icons/apple-touch-icon.png','assets/fonts/Poppins-Regular.ttf','assets/fonts/Poppins-Medium.ttf','assets/fonts/Poppins-Bold.ttf'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>self.clients.claim()));});

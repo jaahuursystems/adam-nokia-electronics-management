@@ -26,7 +26,7 @@ class FakeSpreadsheet {
   getSheetByName(n){return this.sheets[n]||null;}
   insertSheet(n){const s=new FakeSheet(n);this.sheets[n]=s;return s;}
 }
-function loadStore(ss){const context={SpreadsheetApp:{getActiveSpreadsheet:()=>ss},PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})}};vm.runInNewContext(newSource,context);return context.Store;}
+function loadStore(ss){const context={SpreadsheetApp:{getActiveSpreadsheet:()=>ss},PropertiesService:{getScriptProperties:()=>({getProperty:()=>null,setProperty:()=>{},deleteProperty:()=>{}})}};vm.runInNewContext(newSource,context);return context.Store;}
 const old=schema(oldSource), ss=new FakeSpreadsheet();
 for(const t of old){const sh=ss.insertSheet(t.sheet);sh.getRange(1,1,1,t.cols.length).setValues([t.cols]);}
 // Add representative production rows so we can prove migration does not rewrite them.

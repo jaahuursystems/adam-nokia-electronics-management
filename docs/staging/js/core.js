@@ -1,7 +1,7 @@
 /* Production core: shared Apps Script API, persistent offline outbox, route data cache and responsive shell. */
 (function () {
   'use strict';
-  const APP = window.APP = { PAGES: {}, state: { tab: {}, range: {} }, S: null, token: sessionStorage.getItem('ane_token'), route: 'dashboard', readCache: {}, isOffline: !navigator.onLine, syncing: false };
+  const APP = window.APP = { PAGES: {}, state: { tab: {}, range: {} }, S: null, token: localStorage.getItem('ane_token'), route: 'dashboard', readCache: {}, isOffline: !navigator.onLine, syncing: false };
   const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const num = n => Math.round(n).toLocaleString('en-US');
@@ -58,7 +58,13 @@
   const txnId = () => 'TXN-' + DEVICE + '-' + Date.now().toString(36) + '-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
   const readKey = (a, p) => a + ':' + JSON.stringify(p || {});
   function makeError(code, message) { const e = new Error(message || code || 'Request failed'); e.code = code || 'NETWORK_ERROR'; return e; }
-  async function call(action, payload, txn) {
+  /* ---- network: one request at a time (the server handles one at a time anyway), automatic retry when the server was only busy,
+     a progress bar while anything is loading, and a calm notice if the server is slow. ---- */
+  let chain = Promise.resolve(), inflight = 0;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function barOn(on) { let b = document.getElementById('bar'); if (!b) { b = document.createElement('div'); b.id = 'bar'; document.body.appendChild(b); } b.className = on ? 'on' : ''; }
+  const idempotent = (a, txn) => !!txn || /\.(list|get|statement|movements|run|ask)$|^data\.|^dashboard\.|^batch$|^auth\.(login|me)$/.test(a);
+  async function once(action, payload, txn) {
     if (!API_URL) throw makeError('CONFIG_ERROR', 'The API address is not configured.');
     let response;
     try {
@@ -69,12 +75,55 @@
     if (!response.ok && (!result || result.ok !== false)) throw makeError('NETWORK_ERROR', 'The server is temporarily unavailable.');
     return result;
   }
-  async function api(action, payload, txn) {
-    const r = await call(action, payload, txn);
+  async function rawCall(action, payload, txn) {
+    inflight++; barOn(true); const slow = setTimeout(() => toast('Still working… the server is slow right now. Please wait, do not tap again.', 'warn'), 7000);
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await once(action, payload, txn);
+          if (r && r.ok === false && r.error && r.error.code === 'LOCKED_RETRY' && attempt < 2) { await sleep(900 * (attempt + 1)); continue; }   /* nothing ran: safe to retry */
+          return r;
+        } catch (e) {
+          if (e.code === 'NETWORK_ERROR' && navigator.onLine && attempt < 1 && idempotent(action, txn)) { await sleep(900); continue; }
+          throw e;
+        }
+      }
+    } finally { clearTimeout(slow); inflight = Math.max(0, inflight - 1); if (!inflight) barOn(false); }
+  }
+  /* Priority queue: anything the person is waiting for (saves, sign-in, a tab with nothing cached) always goes BEFORE background refreshes;
+     background refreshes for a tab the person has already left are skipped. */
+  const queue = []; let running = false;
+  function call(action, payload, txn, opts) { opts = opts || {}; return new Promise((res, rej) => { queue.push({ a: action, p: payload, t: txn, bg: !!opts.bg, stale: opts.stale, res, rej }); pump(); }); }
+  async function pump() {
+    if (running) return; running = true;
+    try {
+      while (queue.length) {
+        let i = queue.findIndex(x => !x.bg); if (i < 0) i = 0; const x = queue.splice(i, 1)[0];
+        if (x.stale && x.stale()) { x.rej(makeError('STALE', 'Skipped')); continue; }
+        try { x.res(await rawCall(x.a, x.p, x.t)); } catch (e) { x.rej(e); }
+      }
+    } finally { running = false; }
+  }
+  async function api(action, payload, txn, opts) {
+    const r = await call(action, payload, txn, opts);
+    if (r && r.ok && r.snapshot) APP.fresh = r.snapshot;
     if (!r || !r.ok) { const e = makeError(r && r.error && r.error.code, r && r.error && r.error.message); if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) logoutLocal(); throw e; }
     return r;
   }
   async function loadRead(action, payload) { const p = payload || {}, key = readKey(action, p); if (!navigator.onLine && Object.prototype.hasOwnProperty.call(APP.readCache, key)) return APP.readCache[key]; try { const r = await api(action, p); APP.readCache[key] = r.data; await IDB.set('readcache', APP.readCache); return r.data; } catch (e) { if (Object.prototype.hasOwnProperty.call(APP.readCache, key) && ['NETWORK_ERROR', 'LOCKED_RETRY'].includes(e.code)) return APP.readCache[key]; throw e; } }
+  let saveReadT; const saveReads = () => { clearTimeout(saveReadT); saveReadT = setTimeout(() => IDB.set('readcache', APP.readCache).catch(() => { }), 600); };
+  const hasRead = t => Object.prototype.hasOwnProperty.call(APP.readCache, readKey(t[0], t[1] || {}));
+  /* Several reads in ONE request / ONE server load. Returns true if anything changed. */
+  async function loadReads(tasks, opts) {
+    if (!tasks.length) return false; let changed = false;
+    for (let i = 0; i < tasks.length; i += 20) {
+      const part = tasks.slice(i, i + 20); let res;
+      try { res = (await api('batch', { requests: part.map(t => ({ action: t[0], payload: t[1] || {} })) }, undefined, opts)).data; }
+      catch (e) { if (e.code === 'STALE') return false; if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) throw e; if (e.code === 'BAD_REQUEST') { for (const t of part) await loadRead(t[0], t[1] || {}).catch(() => { }); changed = true; continue; } throw e; }
+      res.forEach((r, k) => { if (r && r.ok) { const key = readKey(part[k][0], part[k][1] || {}), a = JSON.stringify(APP.readCache[key]), b = JSON.stringify(r.data); if (a !== b) { APP.readCache[key] = r.data; changed = true; } } else if (r && r.error && ['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(r.error.code)) { const e = makeError(r.error.code, r.error.message); logoutLocal(); throw e; } });
+    }
+    saveReads(); return changed;
+  }
   function q(action, payload) { const key = readKey(action, payload || {}); if (Object.prototype.hasOwnProperty.call(APP.readCache, key)) return APP.readCache[key]; throw new Error(APP.isOffline || !navigator.onLine ? 'This detail is not cached on this device. Connect to the internet to load it.' : 'This information has not loaded yet. Please wait a moment and try again.'); }
   function rateId(pair) { const r = (APP.S && APP.S.rateHistory || []).find(x => x.pair === pair); return r && r.id || null; }
   function applyOptimistic(action, payload) {
@@ -127,14 +176,18 @@
       return { ok: true, queued: true, data: null, client_txn_id: id };
     }
   }
+  /* Install a snapshot the server already sent (login / after a save) without asking again. */
+  async function setSnapshot(data) {
+    IDB.set('server_snapshot', data).catch(() => { });
+    APP.S = clone(data); APP.isOffline = false; if (!Object.keys(APP.readCache || {}).length) APP.readCache = await IDB.get('readcache') || APP.readCache || {};
+    const pending = await IDB.get('outbox') || []; pending.forEach(x => applyOptimistic(x.action, x.payload));
+    IDB.set('snapshot', APP.S).catch(() => { });
+  }
   async function refresh() {
     if (!navigator.onLine) { APP.isOffline = true; APP.readCache = await IDB.get('readcache') || APP.readCache || {}; const cached = await IDB.get('snapshot') || await IDB.get('server_snapshot'); if (cached) { APP.S = cached; return; } throw makeError('OFFLINE_NO_CACHE', 'You need to connect once before this device can work offline.'); }
     try {
       const r = await api('data.snapshot');
-      await IDB.set('server_snapshot', r.data);
-      APP.S = clone(r.data); APP.isOffline = false; APP.readCache = await IDB.get('readcache') || APP.readCache || {};
-      const pending = await IDB.get('outbox') || []; pending.forEach(x => applyOptimistic(x.action, x.payload));
-      await IDB.set('snapshot', APP.S);
+      await setSnapshot(r.data);
     } catch (e) {
       const cached = await IDB.get('snapshot') || await IDB.get('server_snapshot');
       if (cached && ['NETWORK_ERROR', 'LOCKED_RETRY'].includes(e.code)) { APP.S = cached; APP.readCache = await IDB.get('readcache') || APP.readCache || {}; APP.isOffline = true; return; }
@@ -145,7 +198,7 @@
     if (APP.syncing || !navigator.onLine || !APP.token) return;
     APP.syncing = true; updateSyncIndicator();
     try {
-      const outbox = await IDB.get('outbox') || []; let synced = 0;
+      const outbox = await IDB.get('outbox') || [], attempted = outbox.length; let synced = 0;
       for (let i = 0; i < outbox.length; i++) {
         const x = outbox[i];
         if (x.user_id && APP.S && x.user_id !== APP.S.me.id) { x.status = 'CONFLICT'; x.error = 'This transaction belongs to a different staff account. Sign in as that account to sync it.'; await IDB.set('outbox', outbox); break; }
@@ -160,7 +213,7 @@
         } catch (e) { if (e.code === 'NETWORK_ERROR' || e instanceof TypeError) break; x.status = 'CONFLICT'; x.error = e.message; x.error_code = e.code; await IDB.set('outbox', outbox); break; }
       }
       if (outbox.length === 0) await IDB.set('outbox', []);
-      if (navigator.onLine) await refresh().catch(() => {});
+      if (navigator.onLine && attempted > 0) await refresh().catch(() => {});
     } finally { APP.syncing = false; updateSyncIndicator(); }
   }
   async function openSyncQueue() {
@@ -180,7 +233,17 @@
   function toast(m, k) { const t = document.createElement('div'); t.className = 'toast ' + (k || ''); t.textContent = m; $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200); }
   function modal(html, bind, wide) { const d = $('#dlg'); d.className = wide ? 'wide' : ''; d.innerHTML = '<div class="dbody">' + html + '</div>'; if (!d.open) d.showModal(); $$('[data-close]', d).forEach(b => b.onclick = () => d.close()); if (bind) bind(d); }
   const closeModal = () => { const d = $('#dlg'); if (d.open) d.close(); };
-  async function act(fn, okMsg) { try { APP.lastActionQueued = false; const after = await fn(), queued = APP.lastActionQueued || !!(after && after.queued); if (queued) toast('Saved offline. It will sync when the connection returns.', 'warn'); else if (okMsg) toast(okMsg, 'ok'); await refresh(); render(); if (typeof after === 'function') after(); } catch (e) { toast(e.message, 'err'); } }
+  /* Busy state for the button that was tapped: it is disabled, shows a spinner and "Please wait…" so nobody taps twice. */
+  function busyBtn(b, on) { if (!b || !b.isConnected) return; if (on) { if (b.dataset.lbl === undefined) b.dataset.lbl = b.innerHTML; b.classList.add('busy'); b.disabled = true; b.innerHTML = '<span class="spin"></span>Please wait…'; } else { b.classList.remove('busy'); b.disabled = false; if (b.dataset.lbl !== undefined) { b.innerHTML = b.dataset.lbl; delete b.dataset.lbl; } } }
+  async function act(fn, okMsg) {
+    const ae = document.activeElement, btn = ae && ae.tagName === 'BUTTON' && !ae.hasAttribute('data-close') ? ae : null; busyBtn(btn, true);
+    try {
+      APP.lastActionQueued = false; APP.fresh = null; const after = await fn(), queued = APP.lastActionQueued || !!(after && after.queued);
+      if (queued) toast('Saved offline. It will sync when the connection returns.', 'warn'); else if (okMsg) toast(okMsg, 'ok');
+      if (APP.fresh && !queued) { const f = APP.fresh; APP.fresh = null; await setSnapshot(f); } else await refresh();
+      render(); if (typeof after === 'function') after();
+    } catch (e) { toast(e.message, 'err'); } finally { busyBtn(btn, false); }
+  }
   /* ---- forms ---- */
   function fieldHtml(f) {
     const id = 'f_' + f.id; let c;
@@ -234,29 +297,31 @@
       ${setupFor ? '<label>One-time setup code</label><input id="sc" autocomplete="one-time-code" placeholder="ABCDE-12345">' : ''}
       <label>${setupFor ? 'New password' : 'Password'}</label><input id="p" type="password" autocomplete="${setupFor ? 'new-password' : 'current-password'}">
       ${setupFor ? '<label>Repeat password</label><input id="p2" type="password" autocomplete="new-password">' : ''}
-      <button class="btn" id="go" style="width:100%;margin-top:18px">${setupFor ? 'Save and sign in' : 'Sign in'}</button><p class="muted sm center mt">Shared business data syncs with the central system. Offline transactions are saved on this device until connection returns.</p></div></div>`;
+      <button class="btn" id="go" style="width:100%;margin-top:18px">${setupFor ? 'Save and sign in' : 'Sign in'}</button><p class="sm center mt" id="hint" style="color:var(--blue);min-height:20px;font-weight:500"></p><p class="muted sm center mt">Shared business data syncs with the central system. Offline transactions are saved on this device until connection returns.</p></div></div>`;
     const go = async () => {
-      const username = $('#u').value.trim(), password = $('#p').value; let r;
+      const username = $('#u').value.trim(), password = $('#p').value; let r; const btn = $('#go');
+      if (btn.disabled) return; if (!username || !password) return toast('Enter your username and password', 'err');
+      if (setupFor && !$('#sc').value.trim()) return toast('Enter your one-time setup code', 'err');
+      btn.disabled = true; btn.classList.add('busy'); btn.innerHTML = '<span class="spin"></span>' + (setupFor ? 'Setting up your account…' : 'Signing in…'); $$('input', $('#app')).forEach(i => i.readOnly = true);
+      const hint = $('#hint'); if (hint) hint.textContent = 'Please wait — this can take a few seconds. Do not close this page.';
       try {
         if (setupFor) { if (password !== $('#p2').value) return toast('Passwords do not match', 'err'); r = await api('auth.setup', { username, setup_code: $('#sc').value, password }); }
         else { try { r = await api('auth.login', { username, password }); } catch (e) { if (e.code === 'NEEDS_SETUP') { loginView(username.toLowerCase()); return toast('Enter the one-time setup code issued by an owner.', 'warn'); } throw e; } }
-        APP.token = r.data.token; sessionStorage.setItem('ane_token', APP.token); await refresh(); await syncQueue(); APP.route = 'dashboard'; location.hash = '#dashboard'; await render();
-      } catch (e) { toast(e.message, 'err'); }
+        APP.token = r.data.token; localStorage.setItem('ane_token', APP.token); if (r.data.snapshot) await setSnapshot(r.data.snapshot); else await refresh(); APP.route = 'dashboard'; location.hash = '#dashboard'; await render(); syncQueue().then(() => warmCache()).catch(() => { });
+      } catch (e) { toast(e.message, 'err'); const b2 = $('#go'); if (b2) { b2.disabled = false; b2.classList.remove('busy'); b2.textContent = setupFor ? 'Save and sign in' : 'Sign in'; $$('input', $('#app')).forEach(i => { if (!(setupFor && i.id === 'u')) i.readOnly = false; }); const h = $('#hint'); if (h) h.textContent = ''; } }
     };
     $('#go').onclick = go; $$('input', $('#app')).forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); }); (setupFor ? $('#sc') : $('#u')).focus();
   }
-  function logoutLocal() { APP.token = null; sessionStorage.removeItem('ane_token'); APP.S = null; closeModal(); loginView(); }
+  function logoutLocal() { APP.token = null; localStorage.removeItem('ane_token'); APP.S = null; closeModal(); loginView(); }
   APP.logout = async () => { const q = await IDB.get('outbox').catch(() => []) || []; if (q.length) { modal(`<h2>Transactions are waiting to sync</h2><p>You have ${q.length} unsynced transaction(s). Signing out keeps them on this device, but they will sync only after the same staff account signs in again.</p><div class="row mt"><button class="btn bad f" id="signoutanyway">Sign out anyway</button><button class="btn sec" data-close>Stay signed in</button></div>`, d => d.querySelector('#signoutanyway').onclick = async () => { closeModal(); try { await api('auth.logout'); } catch (e) { } logoutLocal(); }); return; } try { await api('auth.logout'); } catch (e) { } logoutLocal(); };
 
   /* ---- shell ---- */
   const NAV = [['dashboard', 'Dashboard', null], ['pos', 'Sell', 'sales.create'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['branches', 'Branch Collections', 'branch.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
   APP.NAV = NAV;
   let renderSeq = 0;
-  async function prefetchRouteData() {
-    if (!APP.S || !navigator.onLine || APP.isOffline) return;
-    const route = APP.route, t = today();
-    const tasks = [];
-    const add = (a, p) => tasks.push(loadRead(a, p || {}).catch(e => { if (e.code === 'UNAUTHENTICATED' || e.code === 'SESSION_EXPIRED') throw e; return null; }));
+  function routeTasks(route) {
+    if (!APP.S) return [];
+    const t = today(), tasks = [], add = (a, p) => tasks.push([a, p || {}]);
     if (route === 'dashboard') { const r = getRange('dash', '7d'); add('dashboard.get', { from: r.from || addDays(t, -29), to: r.to || t }); }
     if (route === 'sales') { const r = getRange('sales', 'today'); add('sales.list', { from: r.from, to: r.to }); add('sales.list', {}); }
     if (route === 'branches') { add('recon.list', {}); (APP.S.branches || []).forEach(b => add('recon.list', { branch_id: b.id })); }
@@ -269,16 +334,14 @@
     if (route === 'insights') add('insights.get', {});
     if (route === 'staff') add('users.list', {});
     if (route === 'audit') add('audit.list', {});
-    await Promise.all(tasks);
+    return tasks;
   }
-  async function render() {
-    const seq = ++renderSeq;
+  const SKELETON = '<div class="skel"><i></i><i></i><i></i><p>Loading…</p></div>';
+  function paint(loading) {
     if (!APP.S) return loginView();
     const nav = NAV.filter(n => !n[2] || can(n[2])); if (APP.route !== 'more' && !nav.find(n => n[0] === APP.route)) APP.route = 'dashboard';
-    try { await prefetchRouteData(); } catch (e) { if (seq === renderSeq && ['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) return logoutLocal(); }
-    if (seq !== renderSeq) return;
     const pg = APP.route === 'more' ? APP.PAGES.more : APP.PAGES[APP.route], over = APP.S.collItems.filter(i => i.overdue).reduce((s, i) => s + i.qty, 0), bottom = ['dashboard', 'pos', 'inventory', 'branches'].filter(k => nav.find(n => n[0] === k));
-    let body; try { body = pg.html(); } catch (e) { console.error(e); body = `<div class="notice bad">Something went wrong showing this page: ${esc(e.message)}</div>`; }
+    let body; if (loading) body = SKELETON; else try { body = pg.html(); } catch (e) { console.error(e); body = `<div class="notice bad">Something went wrong showing this page: ${esc(e.message)}</div>`; }
     $('#app').innerHTML = `<div class="shell"><aside class="side"><div class="brand"><img src="assets/logo/AdamNokia_Primary_FullColor.svg" alt="Adam Nokia Electronics"></div>
       ${nav.map(n => `<a class="nav ${n[0] === APP.route ? 'on' : ''}" href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<div class="grow"></div><div class="me"><b>${esc(APP.S.me.name)}</b><span class="muted" style="text-transform:capitalize">${esc(APP.S.me.role)}</span></div><a class="nav" href="#" id="lo">${ic('logout')}Sign out</a></aside>
       <div class="main"><div class="top"><img class="mlogo" src="assets/logo/AdamNokia_Secondary_Horizontal_FullColor.svg" alt="Adam Nokia"><h1>${pg.title}</h1><span class="pill ${APP.isOffline || !navigator.onLine ? 'offline' : 'on'}" id="syncstat" role="button" tabindex="0">${APP.isOffline || !navigator.onLine ? 'Offline' : 'Synced'}</span>${can('branch.view') && over ? `<a class="bell" href="#branches" title="${over} overdue branch item(s)">${ic('bell')}<i>${over}</i></a>` : ''}</div><div class="page" id="page">${body}</div></div>
@@ -287,11 +350,31 @@
     $('#syncstat').onclick = () => openSyncQueue(); $('#syncstat').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') openSyncQueue(); };
     updateSyncIndicator();
     $$('[data-tab]').forEach(b => b.onclick = () => { APP.state.tab[b.dataset.page] = b.dataset.tab; render(); }); bindRange();
-    try { if (pg.bind) pg.bind(); } catch (e) { console.error(e); toast(e.message, 'err'); }
+    if (!loading) try { if (pg.bind) pg.bind(); } catch (e) { console.error(e); toast(e.message, 'err'); }
+  }
+  /* Show the page at once from what we already have; fetch what is missing / out of date in the background and repaint only if it changed. */
+  async function render() {
+    const seq = ++renderSeq;
+    if (!APP.S) return loginView();
+    const route = APP.route, tasks = routeTasks(route), online = navigator.onLine && !APP.isOffline, missing = tasks.filter(t => !hasRead(t));
+    paint(online && missing.length > 0);
+    if (!online || !tasks.length) return;
+    loadReads(tasks, { bg: missing.length === 0, stale: () => seq !== renderSeq }).then(changed => {
+      if (seq !== renderSeq) return;
+      const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && $('#page') && $('#page').contains(document.activeElement);
+      if ((changed || missing.length) && !(($('#dlg') || {}).open) && !(typing && !missing.length)) { const y = window.scrollY; paint(false); if (!missing.length) window.scrollTo(0, y); }
+    }).catch(e => { if (seq !== renderSeq) return; if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) return; if (missing.length) { paint(false); } if (!missing.length) return; toast(e.message || 'Could not load this page.', 'err'); });
   }
   APP.render = render;
   APP.PAGES.more = { title: 'All modules', html() { return `<div class="menu">${NAV.filter(n => n[0] !== 'dashboard' && (!n[2] || can(n[2]))).map(n => `<a href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<a href="#" id="lo2">${ic('logout')}Sign out</a></div>`; }, bind() { $('#lo2').onclick = e => { e.preventDefault(); APP.logout(); }; } };
 
+  /* After the first screen is up, quietly load the other tabs (one small request each, only when the app is idle) so switching tabs is instant. */
+  let warmed = false;
+  async function warmCache() {
+    if (warmed || !APP.S || !navigator.onLine) return; warmed = true;
+    const routes = ['sales', 'branches', 'purchasing', 'finance', 'reports', 'insights', 'staff', 'audit', 'dashboard'].filter(r => r !== APP.route && (NAV.find(n => n[0] === r) ? can(NAV.find(n => n[0] === r)[2] || '') || !NAV.find(n => n[0] === r)[2] : false));
+    for (const r of routes) { await sleep(800); while (inflight || queue.length) await sleep(500); if (!APP.S || !navigator.onLine) return; const t = routeTasks(r).filter(x => !hasRead(x)); if (t.length) await loadReads(t, { bg: true }).catch(() => { }); }
+  }
   APP.boot = async function () {
     if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
     window.addEventListener('hashchange', () => { APP.route = location.hash.slice(1) || 'dashboard'; if (APP.S) { closeModal(); render(); window.scrollTo(0, 0); } });
@@ -299,7 +382,11 @@
     window.addEventListener('offline', async () => { APP.isOffline = true; updateSyncIndicator(); });
     APP.route = location.hash.slice(1) || 'dashboard';
     if (APP.token) {
-      try { await refresh(); APP.readCache = await IDB.get('readcache') || {}; await syncQueue(); await render(); return; }
+      try {
+        const cached = await IDB.get('snapshot').catch(() => null); APP.readCache = await IDB.get('readcache') || {};
+        if (cached) { APP.S = cached; await render(); refresh().then(() => { updateSyncIndicator(); render(); return syncQueue(); }).then(() => warmCache()).catch(e => { if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) logoutLocal(); }); return; }
+        await refresh(); await render(); syncQueue().then(() => warmCache()).catch(() => { }); return;
+      }
       catch (e) { if (['UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(e.code)) logoutLocal(); else { const cached = await IDB.get('snapshot').catch(() => null); if (cached) { APP.S = cached; APP.isOffline = true; await render(); return; } toast(e.message, 'err'); } }
     }
     loginView();

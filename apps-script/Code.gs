@@ -40,7 +40,25 @@ function handle_(req) {
     var dirty = beforeMigration !== JSON.stringify({ meta: st.db.meta, settings: st.db.settings, roles: st.db.roles, branches: st.db.branches, suppliers: st.db.suppliers, pos: st.db.pos, poItems: st.db.poItems, receipts: st.db.receipts, expenses: st.db.expenses, reconPeriods: st.db.reconPeriods, reconRevs: st.db.reconRevs });
     var eng = new ANE.Engine(st.db, { onChange: function () { dirty = true; } });
     var txn = typeof req.client_txn_id === 'string' && /^[A-Za-z0-9_.:-]{6,80}$/.test(req.client_txn_id) ? req.client_txn_id : undefined;
-    var res = eng.dispatch({ action: req.action, token: typeof req.token === 'string' ? req.token : '', payload: (req.payload && typeof req.payload === 'object') ? req.payload : {}, client_txn_id: txn });
+    var token = typeof req.token === 'string' ? req.token : '', res;
+    if (req.action === 'batch') {
+      /* Several READ actions answered from one database load (one round trip instead of many). Writes are refused here. */
+      var list = (req.payload && req.payload.requests) || [], out = [];
+      if (!Array.isArray(list) || list.length > 20) return fail_('BAD_REQUEST', 'Invalid batch');
+      for (var bi = 0; bi < list.length; bi++) {
+        var q = list[bi] || {};
+        if (typeof q.action !== 'string' || eng.isWrite(q.action)) { out.push({ ok: false, error: { code: 'BAD_REQUEST', message: 'Only read actions may be batched' } }); continue; }
+        out.push(eng.dispatch({ action: q.action, token: token, payload: (q.payload && typeof q.payload === 'object') ? q.payload : {} }));
+      }
+      res = { ok: true, data: out };
+    } else {
+      res = eng.dispatch({ action: req.action, token: token, payload: (req.payload && typeof req.payload === 'object') ? req.payload : {}, client_txn_id: txn });
+      /* Return fresh data with the answer so the app does not need a second request. */
+      if (res.ok && !res.duplicate && (req.action === 'auth.login' || req.action === 'auth.setup' || eng.isWrite(req.action))) {
+        var tk = (res.data && res.data.token) || token, snap = eng.dispatch({ action: 'data.snapshot', token: tk, payload: {} });
+        if (snap.ok) { if (req.action === 'auth.login' || req.action === 'auth.setup') res.data.snapshot = snap.data; else res.snapshot = snap.data; }
+      }
+    }
     if (!res.ok && res.error.code === 'INTERNAL') { console.error('Engine error: ' + res.error.message); res.error.message = 'Server error. Please try again.'; }
     if (dirty) Store.save(st.db, st.snap);     /* failed writes never set dirty, so a half-applied failed action is discarded, not saved */
     res.server_time = new Date().toISOString();

@@ -68,3 +68,13 @@ dialog{border:0;border-radius:18px;padding:0;width:min(580px,95vw);max-height:92
 .doc-foot{margin-top:18px;padding-top:10px;border-top:1px solid #cfd8e6;font-size:11px;color:#555;text-align:center}.doc-note{background:#FFF6E0;border:1px solid #f1d28a;border-radius:6px;padding:7px 10px;font-size:11.5px;margin:10px 0}
 @media(max-width:899px){.cbar{display:flex;justify-content:space-between;align-items:center;position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;padding:10px 14px;border-radius:14px;z-index:7;box-shadow:0 8px 24px rgba(0,0,0,.3)}.cbar span{color:#fff}}@media(min-width:900px){.cbar{display:none!important}}
 @media print{@page{margin:12mm}body.printing{background:#fff}body.printing #app,body.printing dialog,body.printing #toasts{display:none!important}body.printing #printarea{display:block}.doc{font-size:11.5px}}
+
+/* ---- progress, busy buttons, skeletons ---- */
+#bar{position:fixed;left:0;top:0;height:3px;width:100%;z-index:99998;background:transparent;pointer-events:none;overflow:hidden;opacity:0;transition:opacity .15s}
+#bar.on{opacity:1}#bar.on::after{content:"";position:absolute;inset:0;width:40%;background:#F5A623;animation:barmove 1s ease-in-out infinite}
+@keyframes barmove{0%{transform:translateX(-100%)}100%{transform:translateX(260%)}}
+.btn.busy{opacity:.85;cursor:progress}.spin{display:inline-block;width:14px;height:14px;margin-right:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.skel{padding:4px 0}.skel i{display:block;height:64px;border-radius:14px;margin-bottom:12px;background:linear-gradient(90deg,#EAF1FB 25%,#F5F8FD 50%,#EAF1FB 75%);background-size:200% 100%;animation:shim 1.2s linear infinite}
+.skel p{color:var(--muted);text-align:center;margin:10px 0}@keyframes shim{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){#bar.on::after,.spin,.skel i{animation-duration:2.5s}}

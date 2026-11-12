@@ -4,8 +4,11 @@
   "version": "0.4.0-dev",
   "description": "Adam Nokia Electronics management system: PWA frontend + Google Apps Script backend",
   "scripts": {
-    "test": "node tests/test_engine_integration.js && node tests/test_store_migration.js && node tests/test_offline_queue.js && node tests/test_rates_not_seeded.js && node tests/test_formula_guard.js",
-    "serve": "python3 -m http.server 8765 --directory docs"
+    "test": "node tests/test_engine_integration.js && node tests/test_store_migration.js && node tests/test_offline_queue.js && node tests/test_rates_not_seeded.js && node tests/test_formula_guard.js && node tests/test_api_speed.js",
+    "serve": "python3 -m http.server 8765 --directory docs",
+    "e2e": "python3 tests/e2e/e2e_speed.py"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

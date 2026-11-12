@@ -761,6 +761,7 @@
     return { answer: 'I can answer questions about: fastest-selling products, low stock, what to reorder, most profitable products, who owes you, what you owe suppliers, branch pending/overdue items, and sales today or this month.' };
   });
 
+  P.isWrite = function (a) { return !!(A[a] && A[a].write) || a === 'auth.logout'; };
   P.dispatch = function (req) {
     try {
       var a = req.action, p = req.payload || {};

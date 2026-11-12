@@ -67,7 +67,7 @@ function integrityCheck() {
   try { var access = DriveApp.getFileById(Store.ss().getId()).getSharingAccess(); if (String(access) !== 'PRIVATE') p.push('SHARING: spreadsheet link-sharing is "' + access + '". It must be PRIVATE (only named staff accounts).'); } catch (e) { p.push('Could not check sharing: ' + e.message); }
   return p;
 }
-function integrityCheckMenu() { var p = integrityCheck(); say_('Integrity check', p.length ? 'PROBLEMS FOUND:\n\n' + p.join('\n') : 'All checks passed: stock ledger = balances, sale totals = lines, no double-billed branch items, spreadsheet is private.'); }
+function integrityCheckMenu() { try { Store.forgetSchemaCheck(); Store.ensureExistingSchema(); } catch (e) { say_('Schema problem', String(e.message)); return; } var p = integrityCheck(); say_('Integrity check', p.length ? 'PROBLEMS FOUND:\n\n' + p.join('\n') : 'All checks passed: stock ledger = balances, sale totals = lines, no double-billed branch items, spreadsheet is private.'); }
 
 /* Verifies on the REAL Sheets service that formats keep text exact (timestamps, leading zeros, "=" text) and numbers/booleans round-trip. */
 function selfTestMenu() {

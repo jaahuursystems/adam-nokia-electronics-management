@@ -79,7 +79,7 @@ var Store = (function () {
     Object.keys(obj).forEach(function (k) { if (!known[k]) throw new Error('SCHEMA_MISMATCH: ' + t.sheet + ' has no column "' + k + '" (refusing to drop data silently)'); });
     return t.columns.map(function (c) { return cellOut(c.type, obj[c.name]); });
   }
-  function fromRow(t, row) { var o = {}; t.columns.forEach(function (c, i) { o[c.name] = cellIn(c.type, row[i]); }); return o; }
+  function fromRow(t, row) { var o = {}; t.columns.forEach(function (c, i) { o[c.name] = cellIn(c.type, row[i] === undefined || row[i] === null ? '' : row[i]); }); return o; }
   function headerOk(sh, t) { var h = sh.getRange(1, 1, 1, t.columns.length).getValues()[0]; return t.columns.every(function (c, i) { return h[i] === c.name; }); }
 
   /* Schema setup is additive. Existing headers must be an exact prefix of the new schema; we only append columns.
@@ -118,17 +118,37 @@ var Store = (function () {
     });
     return made;
   }
-  function ensureSheets() { return ensureSchema_(true); }
-  function ensureExistingSchema() { return ensureSchema_(false); }
+  /* Speed: validating ~30 sheets header-by-header costs ~120 Google calls. Do it once per schema version and remember it in Script Properties. */
+  function schemaSig_() { var str = JSON.stringify(SCHEMA), h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return 'v1:' + (h >>> 0).toString(36) + ':' + str.length; }
+  function remember_() { try { PropertiesService.getScriptProperties().setProperty('SCHEMA_OK', schemaSig_()); } catch (e) { } }
+  function ensureSheets() { var made = ensureSchema_(true); remember_(); return made; }
+  function ensureExistingSchema() {
+    var props = null; try { props = PropertiesService.getScriptProperties(); } catch (e) { }
+    if (props && props.getProperty('SCHEMA_OK') === schemaSig_()) return [];
+    var made = ensureSchema_(false); remember_(); return made;
+  }
+  function forgetSchemaCheck() { try { PropertiesService.getScriptProperties().deleteProperty('SCHEMA_OK'); } catch (e) { } }
+
+  /* Speed: read every sheet in ONE call when the Advanced Sheets service is enabled (see appsscript.json); otherwise one call per sheet. */
+  function readAll_(s) {
+    var names = SCHEMA.map(function (t) { return t.sheet; }), out = {};
+    if (typeof Sheets !== 'undefined' && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
+      try {
+        var r = Sheets.Spreadsheets.Values.batchGet(s.getId(), { ranges: names.map(function (n) { return "'" + n + "'"; }), valueRenderOption: 'UNFORMATTED_VALUE' });
+        r.valueRanges.forEach(function (vr, i) { out[names[i]] = vr.values || []; }); return out;
+      } catch (e) { out = {}; }
+    }
+    s.getSheets().forEach(function (sh) { var v = sh.getDataRange().getValues(); out[sh.getName()] = (v.length === 1 && v[0].every(function (x) { return x === '' || x === null; })) ? [] : v; });
+    return out;
+  }
 
   /* One batch read per sheet. Returns the db plus a signature snapshot used by save() to write only changes. */
   function load() {
-    var s = ss(), db = {}, snap = {};
+    var s = ss(), db = {}, snap = {}, all = readAll_(s);
     SCHEMA.forEach(function (t) {
-      var sh = s.getSheetByName(t.sheet); if (!sh) throw new Error('Database is not initialised (missing sheet ' + t.sheet + ').');
-      var n = t.columns.length, last = sh.getLastRow(), rows = [];
-      if (last > 1) {
-        var vals = sh.getRange(1, 1, last, n).getValues();
+      var vals = all[t.sheet]; if (!vals) throw new Error('Database is not initialised (missing sheet ' + t.sheet + ').');
+      var rows = [];
+      if (vals.length > 1) {
         if (!t.columns.every(function (c, i) { return vals[0][i] === c.name; })) throw new Error('SCHEMA_MISMATCH: header of sheet ' + t.sheet + ' was changed.');
         rows = vals.slice(1).map(function (r) { return fromRow(t, r); });
       }
@@ -162,5 +182,5 @@ var Store = (function () {
     });
     SpreadsheetApp.flush();
   }
-  return { ss: ss, ensureSheets: ensureSheets, ensureExistingSchema: ensureExistingSchema, load: load, save: save, encText: encText, decText: decText, _cell: { out: cellOut, inn: cellIn } };
+  return { ss: ss, ensureSheets: ensureSheets, ensureExistingSchema: ensureExistingSchema, load: load, save: save, forgetSchemaCheck: forgetSchemaCheck, encText: encText, decText: decText, _cell: { out: cellOut, inn: cellIn } };
 })();
