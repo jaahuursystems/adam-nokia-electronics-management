@@ -7,7 +7,7 @@ const indexedDB={open:()=>{const r={result:db};setTimeout(()=>{r.onupgradeneeded
 const navigator={onLine:false};
 const localStorage={ane_device:'DEV-TEST-0001',getItem:()=> 'TEST-TOKEN',setItem:()=>{},removeItem:()=>{}};
 const sessionStorage={getItem:()=> 'TEST-TOKEN',setItem:()=>{},removeItem:()=>{}};
-const document={getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],createElement:()=>({}),body:{appendChild:()=>{}}};
+const document={addEventListener:()=>{},getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],createElement:()=>({}),body:{appendChild:()=>{}}};
 const window={ANE_CONFIG:{API_URL:'https://staging.example/exec'},addEventListener:()=>{}};
 const crypto={randomUUID:()=> '12345678-1234-1234-1234-123456789abc'};
 const requests=[]; let rejectNext=false;

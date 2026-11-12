@@ -1,7 +1,7 @@
 # Test results
 | Date | Suite | Result | Notes |
 |---|---|---|---|
-| 2026-11-12 | `npm test` (engine/accounting 9, offline queue 4, migration 3, rates-not-seeded 1, formula-guard 1, server speed path 2) | 20/20 pass, Node 22, local only | Not run against real Apps Script/Sheets, browsers or phones |
+| 2026-11-12 | `npm test` (engine/accounting 9, offline queue 4, migration 3, rates-not-seeded 1, formula-guard 1, server speed path 2) | 20/20 pass, Node 22, local only (re-verified after the UX round) | Not run against real Apps Script/Sheets, browsers or phones |
 | 2026-11-12 | Setup menu 4 "Sheets round-trip" on real Sheets (owner ran it) | **FAIL** (formula evaluated) | Fix committed; awaiting re-run |
 Nothing else has been run yet; no other claim of testing is made.
 | 2026-11-12 | `npm run e2e` (headless Chromium, 390×800, real Code.gs/Engine.gs on a FAKE sheet, 2.5 s artificial latency per request) | pass | Account setup = 1 request, button busy at 250 ms; tab switches 11–37 ms; one save = 1 request, 3.4 s total incl. 2.5 s fake latency. Not real Google, not a real phone. |
