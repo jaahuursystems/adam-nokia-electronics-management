@@ -38,17 +38,41 @@
         $$('.pitem', $('#pg')).forEach(b => b.onclick = () => { const p = P(b.dataset.id), n = (st.cart[p.id] || 0) + 1; if (n > p.available) return toast(`Only ${p.available} available`, 'err'); st.cart[p.id] = n; cart(); });
       };
       const cart = () => {
-        const ids = Object.keys(st.cart).filter(id => P(id)), total = ids.reduce((s, id) => s + P(id).price_usd_cents * st.cart[id], 0), m = A.S.methods.find(x => x.id === st.method) || A.S.methods[0], rate = A.S.rates.USD_SLSH;
+        const ids = Object.keys(st.cart).filter(id => P(id)), total = ids.reduce((s, id) => s + P(id).price_usd_cents * st.cart[id], 0), rate = A.S.rates.USD_SLSH;
+        const brCust = new Set(A.S.branches.map(b => b.customer_id)), cu = C(st.cust) || C('CUS-WALKIN') || A.S.customers[0], isBranch = brCust.has(cu.id), act8 = A.S.customers.filter(c => c.status === 'active');
+        /* credit is only offered to customers a manager has approved for it */
+        const methods = A.S.methods.filter(x => x.id !== 'CREDIT' || (cu.credit_approved && !isBranch)); if (!methods.find(x => x.id === st.method)) st.method = (methods.find(x => x.id === 'ZAAD_USD') || methods[0]).id; const m = methods.find(x => x.id === st.method);
+        const grp = (label, arr) => arr.length ? `<optgroup label="${esc(label)}">${arr.map(c => `<option value="${c.id}" ${cu.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>` : '';
+        const custSel = `<select id="cu">${grp('Branch accounts (billed per branch)', act8.filter(c => brCust.has(c.id)))}${grp('Approved for credit — technicians & repair shops', act8.filter(c => !brCust.has(c.id) && c.credit_approved))}${grp('Walk-in & other customers (pay now)', act8.filter(c => !brCust.has(c.id) && !c.credit_approved))}</select>`;
+        let brBlock = '', ready = ids.length > 0;
+        if (isBranch) {
+          const mine = A.S.branches.filter(b => b.customer_id === cu.id); if (!mine.find(b => b.id === st.sbr)) st.sbr = mine[0].id;
+          const ppl = role => A.S.people.filter(x => x.branch_id === st.sbr && x.role === role && x.active !== false); if (!ppl('ASSISTANT').find(x => x.id === st.sas)) st.sas = ''; if (!ppl('TECHNICIAN').find(x => x.id === st.ste)) st.ste = '';
+          const opts = (arr, cur, ph) => `<option value="">${ph}</option>` + arr.map(x => `<option value="${x.id}" ${cur === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+          brBlock = `<div class="notice info mt" style="margin-bottom:8px">Sold directly to a branch. It is billed on the <b>branch account</b> and appears in that branch's report — not as ordinary credit.</div>
+            <label>Branch</label><select id="sbr">${mine.map(b => `<option value="${b.id}" ${st.sbr === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+            <label>Assistant who took the items</label><select id="sas">${opts(ppl('ASSISTANT'), st.sas, 'Choose assistant…')}</select>
+            <label>Technician the items are for</label><select id="ste">${opts(ppl('TECHNICIAN'), st.ste, 'Choose technician…')}</select>`;
+          ready = ready && !!st.sas && !!st.ste;
+        }
         $('#cart').innerHTML = `<h3>Cart</h3>${ids.length ? ids.map(id => `<div class="cartline"><div class="n"><b>${esc(P(id).name)}</b><br><span class="muted sm">${usd(P(id).price_usd_cents)} each</span></div><div class="qty"><button data-d="-1" data-id="${id}" aria-label="Less">−</button><b>${st.cart[id]}</b><button data-d="1" data-id="${id}" aria-label="More">+</button></div><div class="right nowrap b" style="min-width:68px">${usd(P(id).price_usd_cents * st.cart[id])}</div></div>`).join('') : '<div class="empty">Tap a product to add it.</div>'}
-        <label>Customer</label><select id="cu">${A.S.customers.filter(c => c.status === 'active').map(c => `<option value="${c.id}" ${st.cust === c.id ? 'selected' : ''}>${esc(c.name)}${c.credit_approved ? ' (credit approved)' : ''}</option>`).join('')}</select>
-        <label>Payment method</label><select id="me">${A.S.methods.map(x => `<option value="${x.id}" ${m.id === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-        <div class="mt"><div class="total">${usd(total)}</div><div class="muted">${slsh(total * rate / 100)} <span class="sm">(1 USD = ${num(rate)} SLSH)</span></div>${m.currency === 'SLSH' && m.id !== 'CREDIT' ? `<div class="notice info mt" style="margin-bottom:0">Customer pays <b>${slsh(total * rate / 100)}</b></div>` : ''}</div>
-        <div class="row mt"><button class="btn f" id="chg" ${ids.length ? '' : 'disabled'}>Complete sale</button><button class="btn sec" id="clr" ${ids.length ? '' : 'disabled'}>Clear</button></div>`;
+        <label>Customer</label>${custSel}${cu.credit_approved && !isBranch ? '<div class="sm" style="margin-top:4px">' + badge('Credit approved' + (cu.credit_limit_usd_cents ? ' · limit ' + usd(cu.credit_limit_usd_cents) : ''), 'ok') + '</div>' : ''}
+        ${isBranch ? brBlock : `<label>Payment method</label><select id="me">${methods.map(x => `<option value="${x.id}" ${m.id === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`}
+        <div class="mt"><div class="total">${usd(total)}</div><div class="muted">${slsh(total * rate / 100)} <span class="sm">(1 USD = ${num(rate)} SLSH)</span></div>${!isBranch && m.currency === 'SLSH' && m.id !== 'CREDIT' ? `<div class="notice info mt" style="margin-bottom:0">Customer pays <b>${slsh(total * rate / 100)}</b></div>` : ''}</div>
+        <div class="row mt"><button class="btn f" id="chg" ${ready ? '' : 'disabled'}>${isBranch ? 'Sell to branch' : 'Complete sale'}</button><button class="btn sec" id="clr" ${ids.length ? '' : 'disabled'}>Clear</button></div>`;
         const cb = $('#cbar'); cb.style.display = ids.length ? '' : 'none'; cb.innerHTML = `<span><b>${ids.reduce((a, id) => a + st.cart[id], 0)}</b> item(s) · <b>${usd(total)}</b></span><button class="btn sm amber" id="cgo">View cart</button>`; $('#cgo').onclick = () => $('#cart').scrollIntoView({ behavior: 'smooth' });
         $$('[data-d]', $('#cart')).forEach(b => b.onclick = () => { const id = b.dataset.id, n = st.cart[id] + Number(b.dataset.d); if (n < 1) delete st.cart[id]; else if (n > P(id).available) toast(`Only ${P(id).available} available`, 'err'); else st.cart[id] = n; cart(); });
-        $('#cu').onchange = e => st.cust = e.target.value; $('#me').onchange = e => { st.method = e.target.value; cart(); }; $('#clr').onclick = () => { st.cart = {}; st.txn = null; cart(); };
+        $('#cu').onchange = e => { st.cust = e.target.value; st.txn = null; cart(); }; if ($('#me')) $('#me').onchange = e => { st.method = e.target.value; cart(); };
+        if ($('#sbr')) { $('#sbr').onchange = e => { st.sbr = e.target.value; st.sas = ''; st.ste = ''; cart(); }; $('#sas').onchange = e => { st.sas = e.target.value; cart(); }; $('#ste').onchange = e => { st.ste = e.target.value; cart(); }; } $('#clr').onclick = () => { st.cart = {}; st.txn = null; cart(); };
         $('#chg').onclick = () => act(async () => {
           if (!st.txn) st.txn = 'TXN-' + A.DEVICE + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+          if (isBranch) {
+            const lines = ids.map(id => ({ name: P(id).name, qty: st.cart[id] })), br = A.S.branches.find(b => b.id === st.sbr), as = A.S.people.find(x => x.id === st.sas), te = A.S.people.find(x => x.id === st.ste);
+            const r = await apiQ('branch.directSale', { branch_id: st.sbr, assistant_id: st.sas, technician_id: st.ste, items: ids.map(id => ({ product_id: id, qty: st.cart[id] })) }, st.txn); st.cart = {}; st.txn = null;
+            if (r.queued) { cart(); return r; }
+            modal(`<h2 style="color:var(--ok)">Sold to ${esc(br.name)}</h2><p class="muted">Technician <b>${esc(te.name)}</b> · taken by <b>${esc(as.name)}</b></p><div class="total">${usd(total)}</div><ul style="padding-left:18px;margin:8px 0">${lines.map(l => `<li>${l.qty} × ${esc(l.name)}</li>`).join('')}</ul><p class="muted sm">Billed on the branch account. It will appear in ${esc(br.name)}'s report.</p><div class="row mt"><button class="btn f" data-close>New sale</button></div>`);
+            cart(); return;
+          }
           const r = await apiQ('sales.create', { customer_id: st.cust, method_id: st.method, items: ids.map(id => ({ product_id: id, qty: st.cart[id] })) }, st.txn); st.cart = {}; st.txn = null;
           if (r.queued) { cart(); return r; }
           const s = r.data.sale, c = C(s.customer_id), inv = c && c.category !== 'WALK_IN';
@@ -127,20 +151,28 @@
   /* ---------- Customers ---------- */
   PG.customers = {
     title: 'Customers', html() {
+      const BD = (() => { try { return q('customers.breakdowns', {}) || {}; } catch (e) { return {}; } })();
       const s = (st.cq || '').toLowerCase(), l = A.S.customers.filter(c => !s || (c.name + ' ' + (c.phone || '')).toLowerCase().includes(s)), owed = A.S.customers.reduce((a, c) => a + Math.max(0, c.outstanding_usd_cents), 0);
       return `<div class="grid kpis mb">${kpi(A.S.customers.length, 'Customers')}${kpi(A.S.customers.filter(c => c.credit_approved).length, 'Approved for credit')}${kpi(usd(owed), 'Total owed to us', owed ? 'warn' : '')}</div><div class="row mb"><div class="f"><input id="cq" placeholder="Search name or phone…" value="${esc(st.cq || '')}"></div>${can('customers.create') ? '<button class="btn" id="addc">+ New customer</button>' : ''}</div>
-      ${table([['Name'], ['Category'], ['Credit'], ['Owes', 'right']], l.map(c => `<tr class="click" data-id="${c.id}"><td><b>${esc(c.name)}</b><br><span class="muted sm">${esc(c.phone || '')}</span></td><td>${CAT[c.category]}</td><td>${c.credit_approved ? badge('Approved' + (c.credit_limit_usd_cents ? ' · limit ' + usd(c.credit_limit_usd_cents) : ''), 'ok') : badge('Not approved', 'gray')}</td><td class="right b">${c.outstanding_usd_cents ? usd(c.outstanding_usd_cents) : '—'}</td></tr>`).join(''))}`;
+      ${table([['Name'], ['Category'], ['Credit'], ['Owes', 'right']], l.map(c => { const b = BD[c.id], open = b && st.cx === c.id; return `<tr class="click" data-id="${c.id}"><td><b>${esc(c.name)}</b><br><span class="muted sm">${esc(c.phone || '')}</span>${b ? `<br><button class="btn sec sm xp" data-x="${c.id}" style="margin-top:6px">${open ? '▾ Hide' : '▸ Show'} branches</button>` : ''}</td><td>${CAT[c.category]}</td><td>${c.credit_approved ? badge('Approved' + (c.credit_limit_usd_cents ? ' · limit ' + usd(c.credit_limit_usd_cents) : ''), 'ok') : badge('Not approved', 'gray')}</td><td class="right b">${c.outstanding_usd_cents ? usd(c.outstanding_usd_cents) : '—'}</td></tr>${open ? `<tr class="subrow"><td colspan="4">${breakdownHtml(b)}</td></tr>` : ''}`; }).join(''))}`;
     },
     bind() {
       $('#cq').oninput = e => { st.cq = e.target.value; const p = e.target.selectionStart; A.render(); const i = $('#cq'); i.focus(); i.setSelectionRange(p, p); };
+      $$('.xp').forEach(b => b.onclick = e => { e.stopPropagation(); st.cx = st.cx === b.dataset.x ? null : b.dataset.x; A.render(); });
       $$('tr.click').forEach(r => r.onclick = () => custDlg(r.dataset.id)); if ($('#addc')) $('#addc').onclick = () => custForm();
     }
   };
+  /* What a business owes, branch by branch, then the total for the whole business. Ordinary credit is its own line (separate ledger). */
+  function breakdownHtml(b) {
+    const rows = b.branches.map(r => `<tr><td><b>${esc(r.name)}</b>${r.overdue ? ' ' + badge('Overdue', 'bad') : ''}${r.sold_not_invoiced_usd_cents || r.pending_units ? `<br><span class="muted sm">${r.sold_not_invoiced_usd_cents ? 'Sold, report not yet generated: ' + usd(r.sold_not_invoiced_usd_cents) : ''}${r.sold_not_invoiced_usd_cents && r.pending_units ? ' · ' : ''}${r.pending_units ? 'Pending with branch: ' + r.pending_units + ' unit(s) (' + usd(r.pending_value_usd_cents) + ', not owed yet)' : ''}</span>` : ''}</td><td class="right b">${r.invoiced_outstanding_usd_cents ? usd(r.invoiced_outstanding_usd_cents) : '—'}</td></tr>`).join('');
+    return `<table class="bd"><thead><tr><th>Branch</th><th class="right">Owes (invoiced)</th></tr></thead><tbody>${rows}${b.ordinary_credit_usd_cents ? `<tr><td>Ordinary customer credit <span class="muted sm">(separate from branches)</span></td><td class="right b">${usd(b.ordinary_credit_usd_cents)}</td></tr>` : ''}<tr class="tot"><td><b>Total for the whole business</b></td><td class="right b">${usd(b.total_usd_cents)}</td></tr></tbody></table>`;
+  }
   function custForm(c) { formDlg({ title: c ? 'Edit customer' : 'New customer', intro: 'Category does not give credit. Credit is approved separately by a manager or owner.', fields: [{ id: 'name', label: 'Name', value: c && c.name, full: true }, { id: 'phone', label: 'Phone', value: c && c.phone || '' }, { id: 'category', label: 'Category', type: 'select', options: Object.entries(CAT), value: c ? c.category : 'WALK_IN' }, { id: 'address', label: 'Address', value: c && c.address || '', full: true }, { id: 'notes', label: 'Notes', type: 'textarea', value: c && c.notes || '', full: true }], onSubmit: v => c ? apiQ('customers.update', Object.assign({ customer_id: c.id }, v)) : apiQ('customers.create', v) }); }
   async function custDlg(id) {
-    const c = C(id); let stm; try { stm = await A.loadRead('customers.statement', { customer_id: id }); } catch (e) { toast(e.message, 'err'); return; }
+    const c = C(id); let stm, bd = null; try { stm = await A.loadRead('customers.statement', { customer_id: id }); const all = await A.loadRead('customers.breakdowns', {}); bd = all && all[id]; } catch (e) { toast(e.message, 'err'); return; }
     modal(`<h2>${esc(c.name)}</h2><p class="muted">${CAT[c.category]} · ${esc(c.phone || 'no phone')} ${c.credit_approved ? badge('Credit approved' + (c.credit_limit_usd_cents ? ' · limit ' + usd(c.credit_limit_usd_cents) : ''), 'ok') : badge('No credit', 'gray')}</p>${c.notes ? `<p class="sm">${esc(c.notes)}</p>` : ''}
       <div class="grid kpis"><div class="card kpi"><div class="l">Ordinary customer credit</div><div class="v">${usd(c.customer_credit_outstanding_usd_cents || 0)}</div></div><div class="card kpi"><div class="l">Branch reconciliation</div><div class="v">${usd(c.branch_reconciliation_outstanding_usd_cents || 0)}</div></div><div class="card kpi"><div class="l">Total owed</div><div class="v">${usd(c.outstanding_usd_cents)}</div></div></div>
+      ${bd ? `<h3 style="margin:16px 0 6px">Owed by branch</h3>${breakdownHtml(bd)}` : ''}
       <div class="row mt">${can('customers.manage') ? '<button class="btn sec sm" id="ed">Edit</button>' : ''}${can('credit.approve') && !c.system || can('credit.approve') && c.id === 'CUS-AANR' ? '<button class="btn sec sm" id="cr">Credit…</button>' : ''}${can('payments.record') && (c.customer_credit_outstanding_usd_cents || 0) > 0 ? '<button class="btn sm" id="pay">Record ordinary credit repayment</button>' : ''}<button class="btn sec sm" id="sm">Statement</button></div>
       <h3 class="mt">Credit account activity</h3>${table([['When'], ['What'], ['Charges', 'right'], ['Paid', 'right'], ['Balance', 'right']], stm.rows.map(r => `<tr><td class="sm nowrap">${dt(r.at)}</td><td>${esc(r.type)}<br><span class="muted sm">${esc(r.ref)}</span></td><td class="right">${r.debit ? usd(r.debit) : ''}</td><td class="right">${r.credit ? usd(r.credit) : ''}</td><td class="right b">${usd(r.balance)}</td></tr>`).join(''), 'No credit activity.')}${c.id === 'CUS-AANR' ? '<p class="muted sm mt">Branch sales are billed on reconciliation invoices (Branch Collections → Reconciliation).</p>' : ''}<button class="btn sec mt" data-close style="width:100%">Close</button>`, d => {
       const g = x => d.querySelector(x);

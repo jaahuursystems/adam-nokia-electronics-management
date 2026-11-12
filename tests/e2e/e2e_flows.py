@@ -36,12 +36,36 @@ try:
     # sale appears in sales list
     pg.evaluate("location.hash='#sales'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+900)
     check('sale_listed', 'ANE-LCD-001' in pg.inner_text('#page') or 'SAL-' in pg.inner_text('#page'), pg.inner_text('#page')[:150])
+    # nav order: branches 2nd, sell 3rd
+    check('nav_order', pg.evaluate("[...document.querySelectorAll('nav a, .nav a, #nav a')].map(a=>a.textContent.trim()).filter(Boolean).slice(0,3).join('|')").startswith('Dashboard|Branch'), pg.evaluate("[...document.querySelectorAll('nav a, .nav a, #nav a')].map(a=>a.textContent.trim()).slice(0,4)"))
+    # sell to a branch from the POS
+    D=int(os.environ.get('DELAY','0'))*2
+    pg.evaluate("location.hash='#pos'"); pg.wait_for_timeout(D+700)
+    bcust = pg.evaluate("APP.S.branches[0].customer_id")
+    pg.select_option('#cu', bcust); pg.wait_for_timeout(300)
+    check('branch_form_shown', pg.query_selector('#sbr') is not None and pg.query_selector('#sas') is not None and pg.query_selector('#ste') is not None)
+    check('no_payment_method_for_branch', pg.query_selector('#me') is None)
+    pg.click('.pitem[data-id="ANE-LCD-001"]'); pg.wait_for_timeout(200)
+    check('sell_disabled_until_people_chosen', pg.query_selector('#chg[disabled]') is not None)
+    sas = pg.evaluate("(()=>{const o=[...document.querySelectorAll('#sas option')].find(x=>x.value);return o&&o.value})()"); ste = pg.evaluate("(()=>{const o=[...document.querySelectorAll('#ste option')].find(x=>x.value);return o&&o.value})()")
+    pg.select_option('#sas', sas); pg.wait_for_timeout(200); pg.select_option('#ste', ste); pg.wait_for_timeout(200)
+    b4 = pg.evaluate("APP.S.products.find(p=>p.id==='ANE-LCD-001').available")
+    pg.click('#chg'); pg.wait_for_timeout(D+1500)
+    check('branch_sale_done', 'Sold to' in pg.inner_text('body'), pg.inner_text('body')[:120])
+    check('branch_sale_stock', pg.evaluate("APP.S.products.find(p=>p.id==='ANE-LCD-001').available") == b4-1)
+    # credit hidden for non-approved customer
+    pg.evaluate("document.querySelector('[data-close]')&&document.querySelector('[data-close]').click()"); pg.wait_for_timeout(200)
+    pg.select_option('#cu', 'CUS-WALKIN'); pg.wait_for_timeout(300)
+    check('credit_hidden_for_walkin', 'CREDIT' not in pg.evaluate("[...document.querySelectorAll('#me option')].map(o=>o.value)"))
     # add a customer through the real form
     pg.evaluate("location.hash='#customers'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+500)
     btn = pg.query_selector('button:has-text("New customer"), button:has-text("Add customer")'); check('customer_button_exists', btn is not None)
     if btn:
         btn.click(); pg.wait_for_selector('#dlg[open]'); pg.fill('#f_name','E2E Test Customer')
         pg.click('#ok'); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+1200); check('customer_created', 'E2E Test Customer' in pg.inner_text('#page'))
+    bx = pg.query_selector('.xp'); check('breakdown_button', bx is not None)
+    if bx:
+        bx.click(); pg.wait_for_timeout(300); t=pg.inner_text('#page'); check('breakdown_shows_total', 'total for the whole business' in t.lower() and 'owes (invoiced)' in t.lower(), t[-300:])
     # inventory: adjust stock through the product dialog
     pg.evaluate("location.hash='#inventory'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+500)
     # branch collection

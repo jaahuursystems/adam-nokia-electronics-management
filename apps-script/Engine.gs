@@ -340,6 +340,15 @@
       self.move(u, pid, 'BRANCH_COLLECTION', 'AVAILABLE', 'BRANCH:' + br.id, want[pid], null, col.id); });
     this.audit(u, 'BRANCH_COLLECTION', 'Collection', col.id, null, { branch: br.id, items: want }); return col;
   });
+  /* Direct sale to a branch at the counter: the goods are handed over AND confirmed sold in one step. It is billed on the BRANCH reconciliation
+     ledger (source BRANCH_COLLECTION, payment_method BRANCH_ACCOUNT) — never on ordinary customer credit. Same stock path as collect + sold, atomically. */
+  def('branch.directSale', 'branch.collect', true, function (u, p) {
+    if (this.permsOf(u).indexOf('branch.setStatus') < 0 && this.permsOf(u).indexOf('*') < 0) throw E('PERMISSION_DENIED', 'You are not allowed to confirm branch sales');
+    var self = this, col = A['branch.collect'].fn.call(this, u, p), sales = [];
+    this.db.collItems.filter(function (x) { return x.collection_id === col.id; }).forEach(function (it) { sales.push(self.markSold(u, it, 'Sold directly at the counter', 'DIRECT_SALE', p.rate_id, p.offline_at || null).id); });
+    this.audit(u, 'BRANCH_DIRECT_SALE', 'Collection', col.id, null, { branch: col.branch_id, sales: sales });
+    return { collection_id: col.id, sale_ids: sales, branch_id: col.branch_id };
+  });
   P.age = function (it) { return this.now().getTime() - new Date(this.find('collections', it.collection_id).collected_at).getTime(); };
   P.splitItem = function (it, qty, clientId) {
     if (!(qty > 0) || Math.floor(qty) !== qty || qty > it.qty) throw E('VALIDATION_FAILED', 'Quantity must be between 1 and ' + it.qty);
@@ -475,6 +484,24 @@
     if (!p.reason || String(p.reason).trim().length < 3) throw E('VALIDATION_FAILED', 'A reason is required');
     x.reversed = true; this.db.payments.push({ id: this.id('PAY'), direction: x.direction === 'IN' ? 'OUT' : 'IN', party_type: x.party_type, party_id: x.party_id, kind: 'REVERSAL', reverses: x.id, reverses_kind: x.kind, ref: x.ref, method_id: x.method_id, currency: x.currency, amount_minor: -x.amount_minor, usd_cents: -x.usd_cents, rate_usd_slsh: x.rate_usd_slsh, rate_id: x.rate_id || null, at: this.iso(), offline_at: this.eventTime(p.offline_at), synced_at: this.iso(), by: u.id, reference: 'Reversal: ' + p.reason });
     this.audit(u, 'PAYMENT_REVERSED', 'Payment', x.id, x.usd_cents, 0, p.reason); return {};
+  });
+  /* What each business customer owes, split by branch. Invoiced balances are the same numbers that make up the customer's total;
+     "sold, not yet invoiced" and "pending" are shown for information and are NOT added into the total. Ordinary credit stays a separate line. */
+  def('customers.breakdowns', 'customers.view', false, function (u, p) {
+    var self = this, out = {};
+    this.db.customers.forEach(function (c) {
+      var brs = self.db.branches.filter(function (b) { return b.customer_id === c.id; }); if (!brs.length) return;
+      var rows = brs.map(function (b) {
+        var inv = 0, invoiced = 0, overdue = false;
+        self.db.reconPeriods.forEach(function (per) { if (per.branch_id !== b.id) return; var v = self.periodView(per); inv += v.balance_usd_cents; invoiced += v.total_usd_cents; if (v.overdue) overdue = true; });
+        var sold = 0; self.db.sales.forEach(function (s) { if (s.source === 'BRANCH_COLLECTION' && s.branch_id === b.id && s.status === 'ACTIVE') sold += s.total_usd_cents; });
+        var pendUnits = 0, pendVal = 0; self.db.collItems.forEach(function (it) { if (it.status !== 'PENDING') return; var col = self.find('collections', it.collection_id); if (col.branch_id !== b.id) return; var pr = self.find('products', it.product_id) || {}; pendUnits += it.qty; pendVal += (pr.price_usd_cents || 0) * it.qty; });
+        return { branch_id: b.id, name: b.name, invoiced_outstanding_usd_cents: Math.max(0, inv), overdue: overdue, sold_not_invoiced_usd_cents: Math.max(0, sold - invoiced), pending_units: pendUnits, pending_value_usd_cents: pendVal };
+      });
+      var credit = self.customerCreditOutstanding(c.id), branchTotal = rows.reduce(function (a, r) { return a + r.invoiced_outstanding_usd_cents; }, 0);
+      out[c.id] = { customer_id: c.id, branches: rows, branch_total_usd_cents: branchTotal, ordinary_credit_usd_cents: credit, total_usd_cents: branchTotal + credit };
+    });
+    return out;
   });
   def('customers.statement', 'customers.view', false, function (u, p) {
     var c = this.must('customers', p.customer_id), self = this, rows = [];

@@ -17,3 +17,8 @@
   - **Stale code:** the service worker was cache-first for app code, so after a release phones kept running the old JS until a second reload (likely why the sign-in click still looked dead). Now network-first for html/js/css/config (cache only as offline fallback; 3.5 s timeout), cache-first for fonts/logos/icons. Cache `ane-shell-v6-*`.
   - **Responsiveness:** pressed/hover/focus effects on all controls, 46 px touch targets and 16 px inputs on phones, `touch-action: manipulation`, haptic tick on Android, page-enter animation, toast icons; any button that triggers a server call gets an automatic spinner + "Please wait…" and repeated taps are ignored.
   - **Tests:** `npm run e2e:flows` (headless Chromium, real backend code on a fake sheet): setup/sign-in, all 13 screens, a POS sale (stock −1, listed in Sales), new customer, no JS errors. Passed at 0 ms and at 1.2 s latency per request.
+
+## 2026-11-12 — Branch-first workflow
+- Tabs reordered: Dashboard, Branch Collections, Sell, Sales & Invoices, Inventory, Customers…
+- Sell: customers grouped (branch accounts / credit-approved technicians & repair shops / walk-in). Credit method only for approved customers. Choosing a branch-owning customer shows Branch, Assistant, Technician and a "Sell to branch" button (action `branch.directSale`, queueable offline, billed on the branch ledger).
+- Customers: expandable per-branch invoiced balance, separate ordinary-credit line, whole-business total (`customers.breakdowns`); same table in customer dialog.

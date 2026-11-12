@@ -7,3 +7,7 @@
 - D6 Two independent receivable ledgers (customer credit vs branch reconciliation) — never cross-reduced.
 - D7 Exchange rates are never seeded; every transaction keeps the rate used.
 - D8 GitHub Pages serves `docs/`; project records live at repo root.
+
+## D-branch-direct-sale
+Direct counter sales to a branch use the branch ledger (never ordinary credit). Business total = sum of invoiced branch balances + ordinary credit; sold-not-yet-invoiced and pending-with-branch values are shown as information only.
+"Approved" grouping interpreted as credit-approved customers (technicians, repair shops) separated in the picker; Credit payment offered only to them.

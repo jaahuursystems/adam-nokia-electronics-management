@@ -46,14 +46,14 @@
   const API_URL = window.ANE_CONFIG && window.ANE_CONFIG.API_URL;
   const QUEUEABLE = new Set([
     'sales.create', 'sales.reverse', 'payments.recordRepayment', 'payments.reverse',
-    'branch.collect', 'branch.setItemStatus', 'branch.inspectReturn', 'branch.approveReturn', 'branch.reviewOverdue',
+    'branch.collect', 'branch.directSale', 'branch.setItemStatus', 'branch.inspectReturn', 'branch.approveReturn', 'branch.reviewOverdue',
     'stock.adjust', 'products.create', 'products.update', 'products.setPrice', 'products.setStatus',
     'customers.create', 'customers.update', 'customers.setCredit',
     'suppliers.save', 'po.create', 'po.update', 'po.setStatus', 'po.pay', 'po.receive', 'po.approveReceipt', 'po.rejectReceipt',
     'expenses.create', 'expenses.reverse', 'expenses.addCategory', 'recon.generate', 'recon.pay',
     'branches.update', 'people.save', 'settings.update'
   ]);
-  const RATE_ACTIONS = new Set(['sales.create', 'payments.recordRepayment', 'expenses.create', 'recon.pay', 'po.pay', 'branch.setItemStatus', 'branch.reviewOverdue']);
+  const RATE_ACTIONS = new Set(['sales.create', 'branch.directSale', 'payments.recordRepayment', 'expenses.create', 'recon.pay', 'po.pay', 'branch.setItemStatus', 'branch.reviewOverdue']);
   const clone = x => JSON.parse(JSON.stringify(x == null ? {} : x));
   const txnId = () => 'TXN-' + DEVICE + '-' + Date.now().toString(36) + '-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
   const readKey = (a, p) => a + ':' + JSON.stringify(p || {});
@@ -138,6 +138,8 @@
     } else if (action === 'payments.recordRepayment') {
       const c = customer(p.customer_id), m = (APP.S.methods || []).find(x => x.id === p.method_id), rr = (APP.S.rateHistory || []).find(x => x.id === p.rate_id) || (APP.S.rateHistory || []).find(x => x.pair === 'USD_SLSH');
       if (c && m) { const amt = Math.round(Number(p.amount) * (m.currency === 'USD' ? 100 : 1)), usd = m.currency === 'USD' ? amt : Math.round(amt * 100 / (rr && rr.rate || APP.S.rates.USD_SLSH)); c.customer_credit_outstanding_usd_cents = Math.max(0, (c.customer_credit_outstanding_usd_cents || 0) - usd); c.outstanding_usd_cents = Math.max(0, c.outstanding_usd_cents - usd); }
+    } else if (action === 'branch.directSale') {
+      (p.items || []).forEach(x => { const pr = prod(x.product_id); if (pr) pr.available = Math.max(0, pr.available - Number(x.qty || 0)); });
     } else if (action === 'branch.collect') {
       const br = APP.S.branches.find(x => x.id === p.branch_id), as = APP.S.people.find(x => x.id === p.assistant_id), te = APP.S.people.find(x => x.id === p.technician_id), at = p.offline_at || new Date().toISOString();
       (p.items || []).forEach(x => { const pr = prod(x.product_id); if (!pr) return; pr.available = Math.max(0, pr.available - Number(x.qty || 0)); pr.held = (pr.held || 0) + Number(x.qty || 0); APP.S.collItems.unshift({ id: x.client_item_id, collection_id: p.client_collection_id, branch_id: p.branch_id, product_id: x.product_id, qty: Number(x.qty), status: 'PENDING', collected_at: at, assistant: as && as.name || '', technician: te && te.name || '', age_hours: 0, overdue: false, inspection: null, local_pending: true }); });
@@ -158,7 +160,7 @@
     if (RATE_ACTIONS.has(action) && !p.rate_id) p.rate_id = rateId('USD_SLSH');
     if (action === 'po.create' && !p.aed_usd_rate_id) p.aed_usd_rate_id = rateId('AED_USD');
     if (!navigator.onLine && !p.offline_at) p.offline_at = new Date().toISOString();
-    if (action === 'branch.collect') {
+    if (action === 'branch.collect' || action === 'branch.directSale') {
       p.client_collection_id = p.client_collection_id || ('COL-' + DEVICE + '-' + id.slice(-12));
       const grouped = {}; (p.items || []).forEach(x => { if (!x.product_id) return; grouped[x.product_id] = (grouped[x.product_id] || 0) + Number(x.qty || 0); });
       p.items = Object.keys(grouped).map((product_id, i) => ({ product_id, qty: grouped[product_id], client_item_id: 'CIT-' + DEVICE + '-' + id.slice(-8) + '-' + i }));
@@ -316,7 +318,7 @@
   APP.logout = async () => { const q = await IDB.get('outbox').catch(() => []) || []; if (q.length) { modal(`<h2>Transactions are waiting to sync</h2><p>You have ${q.length} unsynced transaction(s). Signing out keeps them on this device, but they will sync only after the same staff account signs in again.</p><div class="row mt"><button class="btn bad f" id="signoutanyway">Sign out anyway</button><button class="btn sec" data-close>Stay signed in</button></div>`, d => d.querySelector('#signoutanyway').onclick = async () => { closeModal(); try { await api('auth.logout'); } catch (e) { } logoutLocal(); }); return; } try { await api('auth.logout'); } catch (e) { } logoutLocal(); };
 
   /* ---- shell ---- */
-  const NAV = [['dashboard', 'Dashboard', null], ['pos', 'Sell', 'sales.create'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['branches', 'Branch Collections', 'branch.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
+  const NAV = [['dashboard', 'Dashboard', null], ['branches', 'Branch Collections', 'branch.view'], ['pos', 'Sell', 'sales.create'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
   APP.NAV = NAV;
   let renderSeq = 0, lastRoute = null;
   function routeTasks(route) {
@@ -331,6 +333,7 @@
       add('reports.run', Object.assign({ name: 'finance_summary' }, r)); add('reports.run', Object.assign({ name: 'payments_summary' }, r)); add('reports.run', Object.assign({ name: 'expenses_report' }, r));
     }
     if (route === 'reports') { const cur = APP.state.rep || (APP.state.rep = { name: 'sales_summary', group: 'day' }), r = getRange('rep', 'month'); add('reports.run', Object.assign({ name: cur.name, group: cur.group }, r)); }
+    if (route === 'customers' && can('customers.view')) add('customers.breakdowns', {});
     if (route === 'insights') add('insights.get', {});
     if (route === 'staff') add('users.list', {});
     if (route === 'audit') add('audit.list', {});
@@ -340,7 +343,7 @@
   function paint(loading) {
     if (!APP.S) return loginView();
     const nav = NAV.filter(n => !n[2] || can(n[2])); if (APP.route !== 'more' && !nav.find(n => n[0] === APP.route)) APP.route = 'dashboard';
-    const pg = APP.route === 'more' ? APP.PAGES.more : APP.PAGES[APP.route], over = APP.S.collItems.filter(i => i.overdue).reduce((s, i) => s + i.qty, 0), bottom = ['dashboard', 'pos', 'inventory', 'branches'].filter(k => nav.find(n => n[0] === k));
+    const pg = APP.route === 'more' ? APP.PAGES.more : APP.PAGES[APP.route], over = APP.S.collItems.filter(i => i.overdue).reduce((s, i) => s + i.qty, 0), bottom = ['dashboard', 'branches', 'pos', 'inventory'].filter(k => nav.find(n => n[0] === k));
     let body; if (loading) body = SKELETON; else try { body = pg.html(); } catch (e) { console.error(e); body = `<div class="notice bad">Something went wrong showing this page: ${esc(e.message)}</div>`; }
     $('#app').innerHTML = `<div class="shell"><aside class="side"><div class="brand"><img src="assets/logo/AdamNokia_Primary_FullColor.svg" alt="Adam Nokia Electronics"></div>
       ${nav.map(n => `<a class="nav ${n[0] === APP.route ? 'on' : ''}" href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<div class="grow"></div><div class="me"><b>${esc(APP.S.me.name)}</b><span class="muted" style="text-transform:capitalize">${esc(APP.S.me.role)}</span></div><a class="nav" href="#" id="lo">${ic('logout')}Sign out</a></aside>

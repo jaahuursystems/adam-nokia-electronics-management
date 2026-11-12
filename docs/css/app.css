@@ -97,3 +97,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 
 @keyframes tin{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 .cbar.pop{animation:pop .2s ease-out}@keyframes pop{50%{transform:scale(1.04)}}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}#bar.on::after,.spin,.skel i{animation-duration:2.5s!important;animation-iteration-count:infinite!important}}
+
+/* ---- per-branch breakdown ---- */
+tr.subrow>td{background:var(--soft);padding:10px 12px!important;cursor:default}
+table.bd{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table.bd th{text-align:left;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);background:var(--soft)}table.bd th.right{text-align:right}
+table.bd td{padding:9px 10px;border-bottom:1px solid var(--line)}table.bd tr.tot td{background:var(--tint);border-bottom:0;font-size:15px}
