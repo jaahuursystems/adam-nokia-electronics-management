@@ -37,6 +37,7 @@ try:
     pg.evaluate("location.hash='#sales'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+900)
     check('sale_listed', 'ANE-LCD-001' in pg.inner_text('#page') or 'SAL-' in pg.inner_text('#page'), pg.inner_text('#page')[:150])
     # nav order: branches 2nd, sell 3rd
+    check('pos_tile_no_id', pg.query_selector('.pitem .id') is None)
     check('nav_order', pg.evaluate("[...document.querySelectorAll('nav a, .nav a, #nav a')].map(a=>a.textContent.trim()).filter(Boolean).slice(0,3).join('|')").startswith('Dashboard|Branch'), pg.evaluate("[...document.querySelectorAll('nav a, .nav a, #nav a')].map(a=>a.textContent.trim()).slice(0,4)"))
     # sell to a branch from the POS
     D=int(os.environ.get('DELAY','0'))*2
@@ -51,10 +52,10 @@ try:
     pg.select_option('#sas', sas); pg.wait_for_timeout(200); pg.select_option('#ste', ste); pg.wait_for_timeout(200)
     b4 = pg.evaluate("APP.S.products.find(p=>p.id==='ANE-LCD-001').available")
     pg.click('#chg'); pg.wait_for_timeout(D+1500)
-    check('branch_sale_done', 'Sold to' in pg.inner_text('body'), pg.inner_text('body')[:120])
+    check('branch_sent_goes_to_branches_tab', pg.evaluate('location.hash')=='#branches', pg.evaluate('location.hash'))
     check('branch_sale_stock', pg.evaluate("APP.S.products.find(p=>p.id==='ANE-LCD-001').available") == b4-1)
     # credit hidden for non-approved customer
-    pg.evaluate("document.querySelector('[data-close]')&&document.querySelector('[data-close]').click()"); pg.wait_for_timeout(200)
+    pg.evaluate("location.hash='#pos'"); pg.wait_for_timeout(D+700)
     pg.select_option('#cu', 'CUS-WALKIN'); pg.wait_for_timeout(300)
     check('credit_hidden_for_walkin', 'CREDIT' not in pg.evaluate("[...document.querySelectorAll('#me option')].map(o=>o.value)"))
     # add a customer through the real form

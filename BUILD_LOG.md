@@ -22,3 +22,4 @@
 - Tabs reordered: Dashboard, Branch Collections, Sell, Sales & Invoices, Inventory, Customers…
 - Sell: customers grouped (branch accounts / credit-approved technicians & repair shops / walk-in). Credit method only for approved customers. Choosing a branch-owning customer shows Branch, Assistant, Technician and a "Sell to branch" button (action `branch.directSale`, queueable offline, billed on the branch ledger).
 - Customers: expandable per-branch invoiced balance, separate ordinary-credit line, whole-business total (`customers.breakdowns`); same table in customer dialog.
+- Follow-up: POS "Send to branch" now records a normal branch collection (branch.collect) and opens Branch Collections, where items are marked sold/returned/pending and the invoice/report is generated. (branch.directSale remains in the engine, unused by the UI.) Product pickers in Sell and collection forms show only name + stock (no IDs).

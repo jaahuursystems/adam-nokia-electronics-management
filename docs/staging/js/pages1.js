@@ -34,7 +34,7 @@
       st.cart = st.cart || {}; st.cust = st.cust || 'CUS-WALKIN'; st.method = st.method || 'ZAAD_USD';
       const draw = () => {
         const s = (st.q || '').toLowerCase(), list = A.S.products.filter(p => p.status === 'active' && (!st.cat || p.category === st.cat) && (!s || (p.name + ' ' + (p.model || '') + ' ' + p.id).toLowerCase().includes(s)));
-        $('#pg').innerHTML = list.map(p => `<button class="pitem ${p.available < 1 ? 'out' : ''}" data-id="${p.id}"><span class="id">${p.id}</span><b>${esc(p.name)}</b><div class="pr">${usd(p.price_usd_cents)}</div><span class="sm ${p.available < 1 ? 'b' : 'muted'}" ${p.available < 1 ? 'style="color:var(--bad)"' : ''}>${p.available < 1 ? 'Out of stock' : p.available + ' in stock'}</span></button>`).join('') || '<div class="empty">No products match.</div>';
+        $('#pg').innerHTML = list.map(p => `<button class="pitem ${p.available < 1 ? 'out' : ''}" data-id="${p.id}"><b>${esc(p.name)}</b><div class="pr">${usd(p.price_usd_cents)}</div><span class="sm ${p.available < 1 ? 'b' : 'muted'}" ${p.available < 1 ? 'style="color:var(--bad)"' : ''}>${p.available < 1 ? 'Out of stock' : p.available + ' in stock'}</span></button>`).join('') || '<div class="empty">No products match.</div>';
         $$('.pitem', $('#pg')).forEach(b => b.onclick = () => { const p = P(b.dataset.id), n = (st.cart[p.id] || 0) + 1; if (n > p.available) return toast(`Only ${p.available} available`, 'err'); st.cart[p.id] = n; cart(); });
       };
       const cart = () => {
@@ -49,7 +49,7 @@
           const mine = A.S.branches.filter(b => b.customer_id === cu.id); if (!mine.find(b => b.id === st.sbr)) st.sbr = mine[0].id;
           const ppl = role => A.S.people.filter(x => x.branch_id === st.sbr && x.role === role && x.active !== false); if (!ppl('ASSISTANT').find(x => x.id === st.sas)) st.sas = ''; if (!ppl('TECHNICIAN').find(x => x.id === st.ste)) st.ste = '';
           const opts = (arr, cur, ph) => `<option value="">${ph}</option>` + arr.map(x => `<option value="${x.id}" ${cur === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
-          brBlock = `<div class="notice info mt" style="margin-bottom:8px">Sold directly to a branch. It is billed on the <b>branch account</b> and appears in that branch's report — not as ordinary credit.</div>
+          brBlock = `<div class="notice info mt" style="margin-bottom:8px">Items go to the <b>Branch Collections</b> tab. There you mark each one sold, returned or still with the branch, then generate the invoice / report.</div>
             <label>Branch</label><select id="sbr">${mine.map(b => `<option value="${b.id}" ${st.sbr === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
             <label>Assistant who took the items</label><select id="sas">${opts(ppl('ASSISTANT'), st.sas, 'Choose assistant…')}</select>
             <label>Technician the items are for</label><select id="ste">${opts(ppl('TECHNICIAN'), st.ste, 'Choose technician…')}</select>`;
@@ -59,7 +59,7 @@
         <label>Customer</label>${custSel}${cu.credit_approved && !isBranch ? '<div class="sm" style="margin-top:4px">' + badge('Credit approved' + (cu.credit_limit_usd_cents ? ' · limit ' + usd(cu.credit_limit_usd_cents) : ''), 'ok') + '</div>' : ''}
         ${isBranch ? brBlock : `<label>Payment method</label><select id="me">${methods.map(x => `<option value="${x.id}" ${m.id === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`}
         <div class="mt"><div class="total">${usd(total)}</div><div class="muted">${slsh(total * rate / 100)} <span class="sm">(1 USD = ${num(rate)} SLSH)</span></div>${!isBranch && m.currency === 'SLSH' && m.id !== 'CREDIT' ? `<div class="notice info mt" style="margin-bottom:0">Customer pays <b>${slsh(total * rate / 100)}</b></div>` : ''}</div>
-        <div class="row mt"><button class="btn f" id="chg" ${ready ? '' : 'disabled'}>${isBranch ? 'Sell to branch' : 'Complete sale'}</button><button class="btn sec" id="clr" ${ids.length ? '' : 'disabled'}>Clear</button></div>`;
+        <div class="row mt"><button class="btn f" id="chg" ${ready ? '' : 'disabled'}>${isBranch ? 'Send to branch' : 'Complete sale'}</button><button class="btn sec" id="clr" ${ids.length ? '' : 'disabled'}>Clear</button></div>`;
         const cb = $('#cbar'); cb.style.display = ids.length ? '' : 'none'; cb.innerHTML = `<span><b>${ids.reduce((a, id) => a + st.cart[id], 0)}</b> item(s) · <b>${usd(total)}</b></span><button class="btn sm amber" id="cgo">View cart</button>`; $('#cgo').onclick = () => $('#cart').scrollIntoView({ behavior: 'smooth' });
         $$('[data-d]', $('#cart')).forEach(b => b.onclick = () => { const id = b.dataset.id, n = st.cart[id] + Number(b.dataset.d); if (n < 1) delete st.cart[id]; else if (n > P(id).available) toast(`Only ${P(id).available} available`, 'err'); else st.cart[id] = n; cart(); });
         $('#cu').onchange = e => { st.cust = e.target.value; st.txn = null; cart(); }; if ($('#me')) $('#me').onchange = e => { st.method = e.target.value; cart(); };
@@ -67,11 +67,8 @@
         $('#chg').onclick = () => act(async () => {
           if (!st.txn) st.txn = 'TXN-' + A.DEVICE + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
           if (isBranch) {
-            const lines = ids.map(id => ({ name: P(id).name, qty: st.cart[id] })), br = A.S.branches.find(b => b.id === st.sbr), as = A.S.people.find(x => x.id === st.sas), te = A.S.people.find(x => x.id === st.ste);
-            const r = await apiQ('branch.directSale', { branch_id: st.sbr, assistant_id: st.sas, technician_id: st.ste, items: ids.map(id => ({ product_id: id, qty: st.cart[id] })) }, st.txn); st.cart = {}; st.txn = null;
-            if (r.queued) { cart(); return r; }
-            modal(`<h2 style="color:var(--ok)">Sold to ${esc(br.name)}</h2><p class="muted">Technician <b>${esc(te.name)}</b> · taken by <b>${esc(as.name)}</b></p><div class="total">${usd(total)}</div><ul style="padding-left:18px;margin:8px 0">${lines.map(l => `<li>${l.qty} × ${esc(l.name)}</li>`).join('')}</ul><p class="muted sm">Billed on the branch account. It will appear in ${esc(br.name)}'s report.</p><div class="row mt"><button class="btn f" data-close>New sale</button></div>`);
-            cart(); return;
+            const r = await apiQ('branch.collect', { branch_id: st.sbr, assistant_id: st.sas, technician_id: st.ste, items: ids.map(id => ({ product_id: id, qty: st.cart[id] })) }, st.txn); st.cart = {}; st.txn = null; st.branch = st.sbr;
+            toast(r && r.queued ? 'Saved offline — will sync. Open Branch Collections to follow it.' : 'Sent to the branch. Mark items sold or returned here.', 'ok'); location.hash = '#branches'; return r;
           }
           const r = await apiQ('sales.create', { customer_id: st.cust, method_id: st.method, items: ids.map(id => ({ product_id: id, qty: st.cart[id] })) }, st.txn); st.cart = {}; st.txn = null;
           if (r.queued) { cart(); return r; }
