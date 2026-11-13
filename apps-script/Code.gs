@@ -60,6 +60,10 @@ function handle_(req) {
       }
     }
     if (!res.ok && res.error.code === 'INTERNAL') { console.error('Engine error: ' + res.error.message); res.error.message = 'Server error. Please try again.'; }
+    /* A reset first makes a private copy of the whole database; if the copy fails, nothing is deleted. */
+    if (req.action === 'system.reset' && res.ok && !res.duplicate) {
+      try { preResetBackup(); } catch (bx) { console.error('Pre-reset backup failed: ' + (bx && bx.message)); return fail_('BACKUP_FAILED', 'Could not make the safety backup, so nothing was deleted. Please try again.'); }
+    }
     if (dirty) Store.save(st.db, st.snap);     /* failed writes never set dirty, so a half-applied failed action is discarded, not saved */
     res.server_time = new Date().toISOString();
     return res;

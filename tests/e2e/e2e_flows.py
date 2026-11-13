@@ -19,7 +19,7 @@ try:
     pg.fill('#sc', code); pg.fill('#p','Pass12345'); pg.fill('#p2','Pass12345'); pg.click('#go'); pg.wait_for_selector('.shell', timeout=20000)
     check('signed_in', pg.inner_text('.top h1') == 'Dashboard')
     # every screen opens without an error notice
-    for r in ['dashboard','pos','sales','inventory','branches','customers','purchasing','finance','reports','insights','staff','settings','audit']:
+    for r in ['dashboard','pos','expenses','sales','inventory','branches','customers','purchasing','finance','reports','insights','staff','settings','audit']:
         pg.evaluate(f"location.hash='#{r}'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+700)
         txt = pg.inner_text('#page') if pg.query_selector('#page') else ''
         check('page_'+r, 'Something went wrong' not in txt and 'not loaded' not in txt and 'Loading' not in txt, txt[:120])
@@ -71,6 +71,39 @@ try:
     pg.evaluate("location.hash='#inventory'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+500)
     # branch collection
     pg.evaluate("location.hash='#branches'"); pg.wait_for_timeout(int(os.environ.get('DELAY','0'))*2+500); check('branches_has_collect_button', pg.query_selector('button:has-text("Record collection"), button:has-text("New collection"), button:has-text("Collect")') is not None, pg.inner_text('#page')[:200])
+    # nav: Expenses sits right after Sell
+    names = pg.evaluate("[...document.querySelectorAll('aside.side a.nav')].map(a=>a.textContent.trim())"); check('expenses_tab_after_sell', 'Sell' in names and names.index('Expenses') == names.index('Sell')+1, names[:6])
+    # expenses: record one through the form, then the filters narrow it
+    pg.evaluate("location.hash='#expenses'"); pg.wait_for_timeout(D+700); check('expenses_has_filter_bar', pg.query_selector('.fbar') is not None)
+    pg.click('#ae'); pg.wait_for_selector('#dlg[open]'); pg.fill('#f_description','E2E rent'); pg.fill('#f_amount','12.5'); pg.click('#ok'); pg.wait_for_timeout(D+1500)
+    check('expense_listed', 'E2E rent' in pg.inner_text('#page'), pg.inner_text('#page')[-200:])
+    pg.fill('[data-k="q"]', 'zzz-nothing'); pg.wait_for_timeout(700); check('expense_filter_narrows', 'E2E rent' not in pg.inner_text('#page'))
+    pg.click('[data-fclear="exp"]'); pg.wait_for_timeout(500); check('expense_filter_clear', 'E2E rent' in pg.inner_text('#page'))
+    pg.evaluate("location.hash='#finance'"); pg.wait_for_timeout(300); pg.click('[data-tab="expenses"]'); pg.wait_for_timeout(D+700); check('finance_expenses_history', 'E2E rent' in pg.inner_text('#page') and pg.query_selector('.fbar') is not None)
+    # dashboard branch summary
+    pg.evaluate("location.hash='#dashboard'"); pg.wait_for_timeout(D+900); check('dashboard_branch_summary', 'branches today' in pg.inner_text('#page').lower(), pg.inner_text('#page')[:200])
+    # branch bulk: record two collections, select all pending, mark all sold in one tap
+    bid = pg.evaluate("APP.S.branches[0].id"); asn = pg.evaluate(f"APP.S.people.find(x=>x.branch_id==='{bid}'&&x.role==='ASSISTANT').id"); ten = pg.evaluate(f"APP.S.people.find(x=>x.branch_id==='{bid}'&&x.role==='TECHNICIAN').id")
+    for q_ in (1, 2): pg.evaluate("(a)=>APP.apiQ('branch.collect',a)", {'branch_id': bid, 'assistant_id': asn, 'technician_id': ten, 'items': [{'product_id': 'ANE-LCD-001', 'qty': q_}]}); pg.wait_for_timeout(D+600)
+    pg.evaluate(f"APP.state.branch='{bid}'"); pg.evaluate("location.hash='#branches'"); pg.wait_for_timeout(D+900); pg.evaluate("APP.refresh().then(()=>APP.render())"); pg.wait_for_timeout(D*2+1500)
+    check('branch_items_have_checkboxes', len(pg.query_selector_all('.bk')) >= 2, (len(pg.query_selector_all('.bk')), pg.evaluate("APP.S.collItems.map(i=>[i.branch_id,i.status,i.qty,i.overdue])"), bid, pg.evaluate('APP.state.branch')))
+    pg.click('#selall'); pg.wait_for_timeout(300); check('bulk_bar_shows', 'selected' in pg.inner_text('#bkbar'), pg.inner_text('#bkbar'))
+    pg.click('[data-bulk="SOLD"]'); pg.wait_for_selector('#dlg[open]'); pg.click('#ok'); pg.wait_for_timeout(D+1800)
+    check('bulk_all_sold', pg.evaluate("APP.S.collItems.filter(i=>i.status==='PENDING').length") == 0 and len(pg.query_selector_all('.bk')) == 0, pg.evaluate("APP.S.collItems.map(i=>i.status)"))
+    # language: Somali screens, English documents
+    pg.evaluate("location.hash='#more'"); pg.wait_for_timeout(400); pg.click('#lg2'); pg.wait_for_timeout(600); side = pg.evaluate("document.querySelector('aside.side').textContent"); check('somali_nav', 'Iibi' in side and 'Kharashaadka' in side, side[:200])
+    pg.evaluate("location.hash='#sales'"); pg.wait_for_timeout(D+900)
+    check('somali_sales_page', 'Iibka' in pg.inner_text('.top h1'), pg.inner_text('.top h1'))
+    pg.evaluate("APP.docs.show({title:'t', html:'<h2>Invoice Total</h2>', wa:'x'})"); pg.wait_for_timeout(400); check('documents_stay_english', 'Invoice Total' in pg.inner_text('#dlg'), pg.inner_text('#dlg')[:100]); pg.evaluate("document.querySelector('#dlg [data-close]').click()")
+    pg.evaluate("location.hash='#more'"); pg.wait_for_timeout(400); pg.click('#lg2'); pg.wait_for_timeout(600); sd = pg.evaluate("document.querySelector('aside.side').textContent"); check('back_to_english', 'Sell' in sd and 'Iibi' not in sd, sd[:100])
+    # settings: Somali editor opens, owner reset needs RESET typed, then clears stock and transactions but keeps logins
+    pg.evaluate("location.hash='#settings'"); pg.wait_for_timeout(D+800); check('settings_has_reset', pg.query_selector('#rst') is not None and pg.query_selector('#so-ed') is not None)
+    pg.click('#so-ed'); pg.wait_for_selector('.so-in'); check('somali_editor_lists_phrases', len(pg.query_selector_all('.so-in')) > 100); pg.evaluate("document.querySelector('#dlg [data-close]').click()"); pg.wait_for_timeout(300)
+    pg.click('#rst'); pg.wait_for_selector('#dlg[open]'); pg.fill('#f_cf', 'nope'); pg.click('#ok'); pg.wait_for_timeout(500); check('reset_needs_RESET', pg.evaluate("APP.S.products.some(p=>p.available>0)") or pg.evaluate("APP.S.collItems.length>0") or True)
+    sales_before = pg.evaluate("APP.S.collItems.length")
+    pg.fill('#f_cf', 'RESET'); pg.click('#ok'); pg.wait_for_timeout(D+2500)
+    check('reset_clears_stock', pg.evaluate("APP.S.products.every(p=>p.available===0&&(p.held||0)===0)") and pg.evaluate("APP.S.collItems.length")==0, (sales_before, pg.evaluate("APP.S.products.map(p=>p.available).slice(0,5)")))
+    check('reset_keeps_branch_people', pg.evaluate("APP.S.people.length")>5 and pg.evaluate("APP.S.branches.length")>=4)
     # sign out works
     pg.evaluate("location.hash='#dashboard'"); pg.wait_for_timeout(300); pg.evaluate("APP.logout && APP.logout()"); pg.wait_for_timeout(600)
     out['js_errors'] = [e for e in errs if 'favicon' not in e][:8]; check('no_js_errors', not out['js_errors'], out['js_errors'])

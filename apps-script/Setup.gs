@@ -9,6 +9,8 @@ function onOpen() {
       .addItem('3. Check data integrity & sharing', 'integrityCheckMenu')
       .addItem('4. Test Sheets read/write round-trip', 'selfTestMenu')
       .addItem('5. Turn on daily private backup', 'installDailyBackupTrigger')
+      .addItem('6. Turn on monthly backup (own folder)', 'installMonthlyBackupTrigger')
+      .addItem('7. Make a monthly backup now', 'monthlyBackup')
       .addToUi();
   } catch (e) { }
 }
@@ -89,4 +91,23 @@ function dailyBackup() {
 function installDailyBackupTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dailyBackup') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('dailyBackup').timeBased().everyDays(1).atHour(2).create(); say_('Backup', 'A private backup copy will be made every night (last 14 kept) in the Drive folder "ANE Backups".');
+}
+
+/* Monthly archive copy in its OWN Drive folder (keeps the last 24 months). Runs on the 1st of each month. */
+function folderNamed_(name) { var it = DriveApp.getFoldersByName(name); return it.hasNext() ? it.next() : DriveApp.createFolder(name); }
+function monthlyBackup() {
+  var f = folderNamed_('ANE Backups - Monthly'), name = 'ANE-monthly-' + Utilities.formatDate(new Date(), 'Africa/Mogadishu', 'yyyy-MM');
+  var ex = f.getFilesByName(name); while (ex.hasNext()) ex.next().setTrashed(true);
+  DriveApp.getFileById(Store.ss().getId()).makeCopy(name, f);
+  var files = []; var fi = f.getFiles(); while (fi.hasNext()) files.push(fi.next()); files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  files.slice(24).forEach(function (x) { x.setTrashed(true); });
+  return name;
+}
+function installMonthlyBackupTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'monthlyBackup') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('monthlyBackup').timeBased().onMonthDay(1).atHour(3).create(); say_('Monthly backup', 'A private archive copy will be made on the 1st of every month (last 24 kept) in the Drive folder "ANE Backups - Monthly".');
+}
+/* Safety copy made automatically just before an owner reset. Never deleted automatically. */
+function preResetBackup() {
+  var f = folderNamed_('ANE Backups - Before Reset'); DriveApp.getFileById(Store.ss().getId()).makeCopy('ANE-before-reset-' + Utilities.formatDate(new Date(), 'Africa/Mogadishu', 'yyyy-MM-dd-HHmmss'), f);
 }

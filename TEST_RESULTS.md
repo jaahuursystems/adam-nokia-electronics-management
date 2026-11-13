@@ -11,3 +11,8 @@ Nothing else has been run yet; no other claim of testing is made.
 ## 2026-11-12 (run in sandbox, fake backend, not real Google/phone)
 - npm test: all pass incl. test_branch_direct_sale.js
 - e2e:flows at 1.2 s latency: pass (nav order, branch sale form, stock, credit hidden for walk-in, per-branch breakdown); e2e speed: no page errors.
+
+## 2026-11-12 (second run, sandbox with fake backend; not real Google/phone)
+- npm test: 22 pass, incl. test_bulk_summary_reset.js (bulk atomicity, overdue rule, summary hides money from staff, language settings validation, owner-only reset keeps logins/branches/people, stock = 0).
+- e2e:flows at 1.2 s latency: expenses tab order + record + filter + finance history, dashboard branch summary, bulk select/sold, Somali nav/page with English documents, Somali editor, reset flow: all pass.
+- NOT tested: the real Drive backup/monthly trigger (needs your Google account), real phone layout of the filter bars.

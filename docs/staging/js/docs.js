@@ -42,7 +42,7 @@
     const done = () => { document.body.classList.remove('printing'); pa.innerHTML = ''; document.title = old; window.removeEventListener('afterprint', done); }; window.addEventListener('afterprint', done); setTimeout(() => window.print(), 80);
   }
   function show(o) {
-    modal(`<div class="row mb"><button class="btn" id="dp">Print / Save as PDF</button><button class="btn wa" id="dw">Share on WhatsApp</button><button class="btn sec" data-close>Close</button></div>${o.note ? `<div class="notice info">${o.note}</div>` : ''}<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff">${o.html}</div>`, d => {
+    modal(`<div class="row mb"><button class="btn" id="dp">Print / Save as PDF</button><button class="btn wa" id="dw">Share on WhatsApp</button><button class="btn sec" data-close>Close</button></div>${o.note ? `<div class="notice info">${o.note}</div>` : ''}<div data-noi18n style="border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff">${o.html}</div>`, d => {
       d.querySelector('#dp').onclick = () => print(o.html, o.title); d.querySelector('#dw').onclick = () => { window.open('https://wa.me/' + (o.phone ? String(o.phone).replace(/\D/g, '') : '') + '?text=' + encodeURIComponent(o.wa), '_blank'); toast('WhatsApp opened. Attach the PDF from Print / Save as PDF if needed.'); };
     }, true);
   }

@@ -94,11 +94,11 @@
   /* ---------- constants ---------- */
   var ALL_PERMS = ['sales.create', 'sales.view', 'inventory.view', 'inventory.manage', 'price.update', 'stock.adjust', 'rates.update',
     'customers.view', 'customers.create', 'customers.manage', 'credit.approve', 'payments.record', 'finance.view',
-    'branch.view', 'branch.collect', 'branch.setStatus', 'branch.inspect', 'branch.approve', 'users.manage', 'audit.view', 'settings.manage',
+    'branch.view', 'branch.collect', 'branch.setStatus', 'branch.inspect', 'branch.approve', 'users.manage', 'system.reset', 'audit.view', 'settings.manage',
     'sales.reverse', 'purchasing.view', 'purchasing.manage', 'purchasing.pay', 'purchasing.receive', 'purchasing.approve', 'finance.reverse', 'expenses.view', 'expenses.manage', 'reports.view', 'recon.view', 'recon.manage', 'insights.view', 'branch.manage'];
   var ROLE_PERMS = {
     owner: ['*'],
-    manager: ALL_PERMS.filter(function (p) { return p !== 'users.manage'; }),
+    manager: ALL_PERMS.filter(function (p) { return p !== 'users.manage' && p !== 'system.reset'; }),
     employee: ['sales.create', 'sales.view', 'inventory.view', 'customers.view', 'customers.create', 'branch.view', 'branch.collect', 'branch.setStatus', 'branch.inspect']
   };
   var OVERDUE_MS = 48 * 3600 * 1000;
@@ -424,8 +424,8 @@
     this.audit(u, 'CUSTOMER_UPDATED', 'Customer', c.id, old, { name: c.name, phone: c.phone, category: c.category }); return c;
   });
   def('settings.update', 'settings.manage', true, function (u, p) {
-    var allowed = { default_min_stock: 'n', reorder_cover_days: 'n', business_name: 's', phone: 's', address: 's', email: 's', website: 's' }, st = this.db.settings, self = this;
-    Object.keys(p).forEach(function (k) { if (!allowed[k]) return; var v = allowed[k] === 'n' ? Math.max(0, Math.floor(Number(p[k]))) : String(p[k]); if (allowed[k] === 'n' && isNaN(v)) throw E('VALIDATION_FAILED', 'Invalid number'); var old = st[k]; st[k] = v; self.audit(u, 'SETTING_CHANGED', 'Setting', k, old, v); }); return st;
+    var allowed = { default_min_stock: 'n', reorder_cover_days: 'n', business_name: 's', phone: 's', address: 's', email: 's', website: 's', default_language: 'l', i18n_so: 'o' }, st = this.db.settings, self = this;
+    Object.keys(p).forEach(function (k) { if (!allowed[k]) return; var v; if (allowed[k] === 'l') { if (['en', 'so'].indexOf(p[k]) < 0) throw E('VALIDATION_FAILED', 'Unknown language'); v = p[k]; } else if (allowed[k] === 'o') { v = {}; var src = (p[k] && typeof p[k] === 'object') ? p[k] : {}; Object.keys(src).slice(0, 600).forEach(function (kk) { var t = String(src[kk]).slice(0, 200).trim(); if (t) v[String(kk).slice(0, 200)] = t; }); } else v = allowed[k] === 'n' ? Math.max(0, Math.floor(Number(p[k]))) : String(p[k]); if (allowed[k] === 'n' && isNaN(v)) throw E('VALIDATION_FAILED', 'Invalid number'); var old = st[k]; st[k] = v; self.audit(u, 'SETTING_CHANGED', 'Setting', k, old, v); }); return st;
   });
   def('branches.update', 'settings.manage', true, function (u, p) {
     var b = this.must('branches', p.branch_id), old = { cycle: b.cycle, due: b.due_offset_days }; if (['DAILY', 'WEEKLY'].indexOf(p.cycle) < 0) throw E('VALIDATION_FAILED', 'Cycle must be DAILY or WEEKLY');
@@ -487,6 +487,44 @@
   });
   /* What each business customer owes, split by branch. Invoiced balances are the same numbers that make up the customer's total;
      "sold, not yet invoiced" and "pending" are shown for information and are NOT added into the total. Ordinary credit stays a separate line. */
+  /* ----- bulk branch item actions (all-or-nothing: if any item cannot be updated, nothing changes) ----- */
+  def('branch.bulkSetStatus', 'branch.setStatus', true, function (u, p) {
+    var ids = Array.isArray(p.item_ids) ? p.item_ids.filter(function (x, i, a) { return a.indexOf(x) === i; }) : [], self = this;
+    if (!ids.length) throw E('VALIDATION_FAILED', 'Select at least one item'); if (ids.length > 100) throw E('VALIDATION_FAILED', 'Select 100 items or fewer at a time');
+    if (['SOLD', 'RETURN_REPORTED'].indexOf(p.status) < 0) throw E('VALIDATION_FAILED', 'Invalid status');
+    ids.forEach(function (id) { var it = self.must('collItems', id); if (it.status !== 'PENDING') throw E('VALIDATION_FAILED', 'Item ' + id + ' is no longer pending'); if (self.age(it) > OVERDUE_MS) throw E('OVERDUE_REVIEW_REQUIRED', 'Item ' + id + ' is overdue. A manager or owner must review it.'); });
+    var fn = A['branch.setItemStatus'].fn, out = ids.map(function (id) { return fn.call(self, u, { item_id: id, status: p.status, reason: p.reason, rate_id: p.rate_id, offline_at: p.offline_at }).id; });
+    this.audit(u, 'BRANCH_BULK_' + p.status, 'CollectionItem', ids.join(','), 'PENDING', p.status); return { item_ids: out };
+  });
+  /* ----- daily branch summary: what each branch holds, what is overdue, what is ready to invoice ----- */
+  def('branches.summary', 'branch.view', false, function (u, p) {
+    var self = this, today = this.dayKey(), perms = this.permsOf(u), fin = perms.indexOf('finance.view') >= 0 || perms.indexOf('*') >= 0;
+    return this.db.branches.map(function (b) {
+      var held = 0, heldVal = 0, overdueUnits = 0, inspect = 0;
+      self.db.collItems.forEach(function (it) {
+        var col = self.find('collections', it.collection_id); if (!col || col.branch_id !== b.id) return;
+        if (it.status === 'RETURN_REPORTED') inspect += it.qty;
+        if (it.status !== 'PENDING') return; var pr = self.find('products', it.product_id) || {};
+        held += it.qty; heldVal += (pr.price_usd_cents || 0) * it.qty; if (self.age(it) > OVERDUE_MS) overdueUnits += it.qty;
+      });
+      var sold = 0, soldToday = 0; self.db.sales.forEach(function (s) { if (s.source === 'BRANCH_COLLECTION' && s.branch_id === b.id && s.status === 'ACTIVE') { sold += s.total_usd_cents; if (self.dayKey(new Date(s.offline_at || s.at)) === today) soldToday += s.total_usd_cents; } });
+      var invoiced = 0, unpaid = 0, overdueInv = 0; self.db.reconPeriods.forEach(function (per) { if (per.branch_id !== b.id) return; var v = self.periodView(per); invoiced += v.total_usd_cents; unpaid += v.balance_usd_cents; if (v.overdue && v.balance_usd_cents > 0) overdueInv++; });
+      var o = { branch_id: b.id, name: b.name, units_held: held, overdue_units: overdueUnits, awaiting_inspection_units: inspect, overdue_invoices: overdueInv };
+      if (fin) { o.held_value_usd_cents = heldVal; o.ready_to_invoice_usd_cents = Math.max(0, sold - invoiced); o.unpaid_invoiced_usd_cents = Math.max(0, unpaid); o.sold_today_usd_cents = soldToday; }
+      return o;
+    });
+  });
+  /* ----- OWNER ONLY: reset the whole system to a clean start. Keeps logins, branches, branch staff, products (stock set to 0), rates and settings. ----- */
+  def('system.reset', 'system.reset', true, function (u, p) {
+    if (u.role !== 'owner') throw E('FORBIDDEN', 'Only the owner can reset the system');
+    if (p.confirm !== 'RESET') throw E('VALIDATION_FAILED', 'Type RESET to confirm');
+    var db = this.db, n = {}, keepCust = {}; db.branches.forEach(function (b) { if (b.customer_id) keepCust[b.customer_id] = 1; }); keepCust['CUS-WALKIN'] = 1;
+    ['sales', 'saleItems', 'payments', 'collections', 'collItems', 'history', 'inspections', 'pos', 'poItems', 'receipts', 'expenses', 'reconPeriods', 'reconRevs', 'movements', 'balances'].forEach(function (t) { n[t] = db[t].length; db[t] = []; });
+    if (p.delete_customers) { n.customers = db.customers.filter(function (c) { return !keepCust[c.id]; }).length; db.customers = db.customers.filter(function (c) { return keepCust[c.id]; }); }
+    if (p.delete_suppliers) { n.suppliers = db.suppliers.length; db.suppliers = []; }
+    db.audit = []; this.audit(u, 'SYSTEM_RESET', 'System', 'ALL', null, n, 'Owner reset: transactions and documents deleted, stock set to 0');
+    return { reset: true, deleted: n };
+  });
   def('customers.breakdowns', 'customers.view', false, function (u, p) {
     var self = this, out = {};
     this.db.customers.forEach(function (c) {

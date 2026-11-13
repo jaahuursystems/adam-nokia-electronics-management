@@ -23,3 +23,12 @@
 - Sell: customers grouped (branch accounts / credit-approved technicians & repair shops / walk-in). Credit method only for approved customers. Choosing a branch-owning customer shows Branch, Assistant, Technician and a "Sell to branch" button (action `branch.directSale`, queueable offline, billed on the branch ledger).
 - Customers: expandable per-branch invoiced balance, separate ordinary-credit line, whole-business total (`customers.breakdowns`); same table in customer dialog.
 - Follow-up: POS "Send to branch" now records a normal branch collection (branch.collect) and opens Branch Collections, where items are marked sold/returned/pending and the invoice/report is generated. (branch.directSale remains in the engine, unused by the UI.) Product pickers in Sell and collection forms show only name + stock (no IDs).
+
+## 2026-11-12 — Expenses tab, filters, bulk, summary, language, reset, monthly backup
+- New **Expenses** tab (after Sell) and Finance → **Expenses history**, both with full filters (search, date range, category, method, status, recorded by, min/max USD), category totals and CSV export.
+- Reusable filter bar (`A.filterBar`) added to Sales, Payments, Customers, Audit log and Branch items.
+- Branch Collections: tick items (or "Select all pending") and mark all sold / returned in one tap. Server action `branch.bulkSetStatus` is all-or-nothing.
+- Dashboard: "Branches today" card per branch (held units/value, overdue, awaiting inspection, ready to invoice, invoiced-unpaid, sold today) from `branches.summary`; money lines hidden from staff without finance permission.
+- Language: Somali/English toggle (More menu on phone, sidebar on desktop); business default + per-device choice; Settings → Language lets owner/manager edit Somali wording (`settings.i18n_so`). Invoices/receipts/printed reports stay English (`data-noi18n`, print area untouched).
+- Settings → Danger zone: **owner-only reset** (`system.reset`): requires typing RESET; blocked while this device has unsynced transactions; makes a private Drive backup first (aborts if backup fails). Keeps logins, products (stock set to 0), branches, technicians/assistants, rates, settings. Customers/suppliers deleted only if ticked (Walk-in and branch business accounts are always kept).
+- Backups: menu items 6 and 7 add a monthly archive in its own Drive folder ("ANE Backups - Monthly", last 24 kept); pre-reset copies go to "ANE Backups - Before Reset" (never auto-deleted).

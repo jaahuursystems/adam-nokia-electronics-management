@@ -26,6 +26,7 @@
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
     audit: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>',
     more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+    expenses: '<path d="M4 4h16v16l-3-2-3 2-2-2-2 2-3-2-3 2z"/><path d="M8 9h8M8 13h5"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>'
   };
@@ -50,10 +51,10 @@
     'stock.adjust', 'products.create', 'products.update', 'products.setPrice', 'products.setStatus',
     'customers.create', 'customers.update', 'customers.setCredit',
     'suppliers.save', 'po.create', 'po.update', 'po.setStatus', 'po.pay', 'po.receive', 'po.approveReceipt', 'po.rejectReceipt',
-    'expenses.create', 'expenses.reverse', 'expenses.addCategory', 'recon.generate', 'recon.pay',
+    'branch.bulkSetStatus', 'expenses.create', 'expenses.reverse', 'expenses.addCategory', 'recon.generate', 'recon.pay',
     'branches.update', 'people.save', 'settings.update'
   ]);
-  const RATE_ACTIONS = new Set(['sales.create', 'branch.directSale', 'payments.recordRepayment', 'expenses.create', 'recon.pay', 'po.pay', 'branch.setItemStatus', 'branch.reviewOverdue']);
+  const RATE_ACTIONS = new Set(['sales.create', 'branch.directSale', 'payments.recordRepayment', 'expenses.create', 'recon.pay', 'po.pay', 'branch.setItemStatus', 'branch.bulkSetStatus', 'branch.reviewOverdue']);
   const clone = x => JSON.parse(JSON.stringify(x == null ? {} : x));
   const txnId = () => 'TXN-' + DEVICE + '-' + Date.now().toString(36) + '-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
   const readKey = (a, p) => a + ':' + JSON.stringify(p || {});
@@ -145,6 +146,8 @@
       (p.items || []).forEach(x => { const pr = prod(x.product_id); if (!pr) return; pr.available = Math.max(0, pr.available - Number(x.qty || 0)); pr.held = (pr.held || 0) + Number(x.qty || 0); APP.S.collItems.unshift({ id: x.client_item_id, collection_id: p.client_collection_id, branch_id: p.branch_id, product_id: x.product_id, qty: Number(x.qty), status: 'PENDING', collected_at: at, assistant: as && as.name || '', technician: te && te.name || '', age_hours: 0, overdue: false, inspection: null, local_pending: true }); });
     } else if (action === 'branch.setItemStatus' || action === 'branch.reviewOverdue') {
       const original = item(p.item_id); if (original) { let target = original, qty = Number(p.qty || original.qty); if (qty > 0 && qty < original.qty && p.client_split_item_id) { original.qty -= qty; target = Object.assign({}, original, { id: p.client_split_item_id, qty, local_pending: true }); APP.S.collItems.unshift(target); } const next = action === 'branch.reviewOverdue' ? (p.decision === 'SOLD' ? 'SOLD' : p.decision === 'RETURN_REPORTED' ? 'RETURN_REPORTED' : 'PENDING') : p.status; if (next) target.status = next; if (next === 'SOLD') { const pr = prod(target.product_id); if (pr) pr.held = Math.max(0, (pr.held || 0) - target.qty); } }
+    } else if (action === 'branch.bulkSetStatus') {
+      (p.item_ids || []).forEach(id => { const it = item(id); if (it && it.status === 'PENDING') it.status = p.status === 'SOLD' ? 'SOLD' : 'RETURN_REPORTED'; });
     } else if (action === 'branch.inspectReturn') {
       const it = item(p.item_id); if (it) { it.status = 'RETURN_INSPECTED'; it.inspection = { result: p.result, notes: p.notes || '', by_name: APP.S.me.name }; }
     } else if (action === 'branch.approveReturn') {
@@ -181,7 +184,7 @@
   /* Install a snapshot the server already sent (login / after a save) without asking again. */
   async function setSnapshot(data) {
     IDB.set('server_snapshot', data).catch(() => { });
-    APP.S = clone(data); APP.isOffline = false; if (!Object.keys(APP.readCache || {}).length) APP.readCache = await IDB.get('readcache') || APP.readCache || {};
+    APP.S = clone(data); APP.isOffline = false; if (APP.i18n) APP.i18n.refresh(); if (!Object.keys(APP.readCache || {}).length) APP.readCache = await IDB.get('readcache') || APP.readCache || {};
     const pending = await IDB.get('outbox') || []; pending.forEach(x => applyOptimistic(x.action, x.payload));
     IDB.set('snapshot', APP.S).catch(() => { });
   }
@@ -288,6 +291,21 @@
     const b = series.map((s, i) => { const h = s.usd_cents / max * (H - pb - 14), x = pl + i * bw + bw * .15; return `<rect x="${x}" y="${H - pb - h}" width="${Math.max(2, bw * .7)}" height="${h}" rx="3" fill="#064797"><title>${dkey(s.day)}: ${usd(s.usd_cents)}</title></rect>${i % step === 0 ? `<text x="${x + bw * .35}" y="${H - 9}" text-anchor="middle" font-size="10" fill="#475569">${s.day.slice(8)}/${s.day.slice(5, 7)}</text>` : ''}`; }).join('');
     return `<svg class="bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sales by day">${yt}${b}</svg>`;
   }
+  /* ---- reusable filter bar: A.filterBar(key, fields) -> html; A.filters(key) -> current values; A.bindFilters(key) after render ---- */
+  const FSTATE = APP.state.F || (APP.state.F = {}), FOPEN = APP.state.Fopen || (APP.state.Fopen = {});
+  const filters = key => FSTATE[key] || (FSTATE[key] = {});
+  function filterBar(key, fields, extra) {
+    const f = filters(key), active = fields.filter(x => f[x.id] !== undefined && f[x.id] !== '').length, main = fields.filter(x => x.main), more = fields.filter(x => !x.main);
+    const one = x => x.type === 'select' ? `<div class="fld"><label>${esc(x.label)}</label><select data-flt="${key}" data-k="${x.id}"><option value="">All</option>${x.options.map(o => { const v = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[1] : o; return `<option value="${esc(v)}" ${f[x.id] === v ? 'selected' : ''}>${esc(t)}</option>`; }).join('')}</select></div>` : `<div class="fld"><label>${esc(x.label)}</label><input data-flt="${key}" data-k="${x.id}" id="flt_${key}_${x.id}" type="${x.type || 'text'}" ${x.step ? 'step="' + x.step + '"' : ''} placeholder="${esc(x.ph || '')}" value="${esc(f[x.id] || '')}"></div>`;
+    return `<div class="card fbar mb"><div class="fgrid">${main.map(one).join('')}</div>${more.length ? `<details ${FOPEN[key] ? 'open' : ''} data-fopen="${key}"><summary>More filters${active ? ' · ' + active + ' active' : ''}</summary><div class="fgrid mt">${more.map(one).join('')}</div></details>` : ''}<div class="row" style="margin-top:8px;align-items:center">${extra || ''}${active ? `<button class="btn sm sec" data-fclear="${key}">Clear filters (${active})</button>` : ''}</div></div>`;
+  }
+  function bindFilters(key) {
+    let tm; const f = filters(key);
+    $$('[data-flt="' + key + '"]').forEach(el => { const go = () => { f[el.dataset.k] = el.value; const id = el.id, pos = el.selectionStart; clearTimeout(tm); tm = setTimeout(() => { render(); if (id) { const n = document.getElementById(id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { } } } }, el.tagName === 'SELECT' || el.type === 'date' ? 0 : 250); }; el.addEventListener(el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input', go); });
+    $$('[data-fclear="' + key + '"]').forEach(b => b.onclick = () => { FSTATE[key] = {}; render(); });
+    $$('[data-fopen="' + key + '"]').forEach(d => d.addEventListener('toggle', () => { FOPEN[key] = d.open; }));
+  }
+  Object.assign(APP, { filterBar, bindFilters, filters });
   Object.assign(APP, { $, $$, esc, num, usd, slsh, dt, dday, dkey, ic, badge, kpi, table, tabs, curTab, api, apiQ, q, call, loadRead, refresh, syncQueue, openSyncQueue, can, toast, modal, closeModal, act, formDlg, fieldHtml, today, addDays, getRange, rangeBar, csv, bars, IDB, DEVICE });
   APP.slshOf = c => Math.round(c * APP.S.rates.USD_SLSH / 100);
 
@@ -318,13 +336,14 @@
   APP.logout = async () => { const q = await IDB.get('outbox').catch(() => []) || []; if (q.length) { modal(`<h2>Transactions are waiting to sync</h2><p>You have ${q.length} unsynced transaction(s). Signing out keeps them on this device, but they will sync only after the same staff account signs in again.</p><div class="row mt"><button class="btn bad f" id="signoutanyway">Sign out anyway</button><button class="btn sec" data-close>Stay signed in</button></div>`, d => d.querySelector('#signoutanyway').onclick = async () => { closeModal(); try { await api('auth.logout'); } catch (e) { } logoutLocal(); }); return; } try { await api('auth.logout'); } catch (e) { } logoutLocal(); };
 
   /* ---- shell ---- */
-  const NAV = [['dashboard', 'Dashboard', null], ['branches', 'Branch Collections', 'branch.view'], ['pos', 'Sell', 'sales.create'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
+  const NAV = [['dashboard', 'Dashboard', null], ['branches', 'Branch Collections', 'branch.view'], ['pos', 'Sell', 'sales.create'], ['expenses', 'Expenses', 'expenses.view'], ['sales', 'Sales & Invoices', 'sales.view'], ['inventory', 'Inventory', 'inventory.view'], ['customers', 'Customers', 'customers.view'], ['purchasing', 'Purchasing', 'purchasing.view'], ['finance', 'Finance', 'finance.view'], ['reports', 'Reports', 'reports.view'], ['insights', 'Smart Insights', 'insights.view'], ['staff', 'Staff & Permissions', 'users.manage'], ['settings', 'Settings', null], ['audit', 'Audit Log', 'audit.view']];
   APP.NAV = NAV;
   let renderSeq = 0, lastRoute = null;
   function routeTasks(route) {
     if (!APP.S) return [];
     const t = today(), tasks = [], add = (a, p) => tasks.push([a, p || {}]);
-    if (route === 'dashboard') { const r = getRange('dash', '7d'); add('dashboard.get', { from: r.from || addDays(t, -29), to: r.to || t }); }
+    if (route === 'dashboard') { const r = getRange('dash', '7d'); add('dashboard.get', { from: r.from || addDays(t, -29), to: r.to || t }); if (can('branch.view')) add('branches.summary', {}); }
+    if (route === 'expenses' && can('expenses.view')) add('expenses.list', getRange('exp', 'month'));
     if (route === 'sales') { const r = getRange('sales', 'today'); add('sales.list', { from: r.from, to: r.to }); add('sales.list', {}); }
     if (route === 'branches') { add('recon.list', {}); (APP.S.branches || []).forEach(b => add('recon.list', { branch_id: b.id })); }
     if (route === 'purchasing') { add('po.list', {}); if (can('finance.view')) add('payments.list', {}); }
@@ -346,10 +365,10 @@
     const pg = APP.route === 'more' ? APP.PAGES.more : APP.PAGES[APP.route], over = APP.S.collItems.filter(i => i.overdue).reduce((s, i) => s + i.qty, 0), bottom = ['dashboard', 'branches', 'pos', 'inventory'].filter(k => nav.find(n => n[0] === k));
     let body; if (loading) body = SKELETON; else try { body = pg.html(); } catch (e) { console.error(e); body = `<div class="notice bad">Something went wrong showing this page: ${esc(e.message)}</div>`; }
     $('#app').innerHTML = `<div class="shell"><aside class="side"><div class="brand"><img src="assets/logo/AdamNokia_Primary_FullColor.svg" alt="Adam Nokia Electronics"></div>
-      ${nav.map(n => `<a class="nav ${n[0] === APP.route ? 'on' : ''}" href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<div class="grow"></div><div class="me"><b>${esc(APP.S.me.name)}</b><span class="muted" style="text-transform:capitalize">${esc(APP.S.me.role)}</span></div><a class="nav" href="#" id="lo">${ic('logout')}Sign out</a></aside>
+      ${nav.map(n => `<a class="nav ${n[0] === APP.route ? 'on' : ''}" href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<div class="grow"></div><a class="nav" href="#" id="lg" data-noi18n>${ic('more')}${APP.i18n && APP.i18n.lang() === 'so' ? 'English' : 'Af-Soomaali'}</a><div class="me"><b>${esc(APP.S.me.name)}</b><span class="muted" style="text-transform:capitalize">${esc(APP.S.me.role)}</span></div><a class="nav" href="#" id="lo">${ic('logout')}Sign out</a></aside>
       <div class="main"><div class="top"><img class="mlogo" src="assets/logo/AdamNokia_Secondary_Horizontal_FullColor.svg" alt="Adam Nokia"><h1>${pg.title}</h1><span class="pill ${APP.isOffline || !navigator.onLine ? 'offline' : 'on'}" id="syncstat" role="button" tabindex="0">${APP.isOffline || !navigator.onLine ? 'Offline' : 'Synced'}</span>${can('branch.view') && over ? `<a class="bell" href="#branches" title="${over} overdue branch item(s)">${ic('bell')}<i>${over}</i></a>` : ''}</div><div class="page" id="page">${body}</div></div>
       <nav class="bottom">${bottom.map(k => { const n = nav.find(x => x[0] === k); return `<a href="#${k}" class="${k === APP.route ? 'on' : ''}">${ic(k)}${k === 'branches' ? 'Branches' : n[1]}</a>`; }).join('')}<a href="#more" class="${APP.route === 'more' ? 'on' : ''}">${ic('more')}More</a></nav></div>`;
-    $('#lo').onclick = e => { e.preventDefault(); APP.logout(); };
+    $('#lo').onclick = e => { e.preventDefault(); APP.logout(); }; $('#lg').onclick = e => { e.preventDefault(); APP.i18n.setLang(APP.i18n.lang() === 'so' ? 'en' : 'so'); };
     $('#syncstat').onclick = () => openSyncQueue(); $('#syncstat').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') openSyncQueue(); };
     updateSyncIndicator();
     $$('[data-tab]').forEach(b => b.onclick = () => { APP.state.tab[b.dataset.page] = b.dataset.tab; render(); }); bindRange();
@@ -383,7 +402,7 @@
       setTimeout(() => { if (b.isConnected && !b.classList.contains('busy') && fgBusy()) { busyBtn(b, true); const iv = setInterval(() => { if (!fgBusy() || !b.isConnected) { clearInterval(iv); busyBtn(b, false); } }, 120); } }, 140);
     }, true);
   })();
-  APP.PAGES.more = { title: 'All modules', html() { return `<div class="menu">${NAV.filter(n => n[0] !== 'dashboard' && (!n[2] || can(n[2]))).map(n => `<a href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<a href="#" id="lo2">${ic('logout')}Sign out</a></div>`; }, bind() { $('#lo2').onclick = e => { e.preventDefault(); APP.logout(); }; } };
+  APP.PAGES.more = { title: 'All modules', html() { return `<div class="menu">${NAV.filter(n => n[0] !== 'dashboard' && (!n[2] || can(n[2]))).map(n => `<a href="#${n[0]}">${ic(n[0])}${n[1]}</a>`).join('')}<a href="#" id="lg2" data-noi18n>${ic('more')}${APP.i18n && APP.i18n.lang() === 'so' ? 'English' : 'Af-Soomaali'}</a><a href="#" id="lo2">${ic('logout')}Sign out</a></div>`; }, bind() { $('#lg2').onclick = e => { e.preventDefault(); APP.i18n.setLang(APP.i18n.lang() === 'so' ? 'en' : 'so'); }; $('#lo2').onclick = e => { e.preventDefault(); APP.logout(); }; } };
 
   /* After the first screen is up, quietly load the other tabs (one small request each, only when the app is idle) so switching tabs is instant. */
   let warmed = false;
