@@ -13,7 +13,7 @@ class SS { constructor(){this.sheets={};} getId(){return 'fake';} getSheetByName
 const ss = new SS, props = {};
 const ctx = { console, SpreadsheetApp:{getActiveSpreadsheet:()=>ss,flush(){}}, PropertiesService:{getScriptProperties:()=>({getProperty:k=>props[k]||null,setProperty:(k,v)=>{props[k]=v;},deleteProperty:k=>{delete props[k];}})},
   LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})}, ContentService:{MimeType:{JSON:'json'},createTextOutput:t=>({t,setMimeType(){return this;}})}, Utilities:{getUuid:()=>require('node:crypto').randomUUID()}, DriveApp:{}, ScriptApp:{} };
-vm.createContext(ctx); ctx.preResetBackup = function () { ctx.__backups = (ctx.__backups || 0) + 1; };   /* stands in for the Drive copy that Setup.gs makes */
+vm.createContext(ctx); ctx.saveDocumentCopy_ = function () { ctx.__docs = (ctx.__docs || 0) + 1; return true; }; ctx.preResetBackup = function () { ctx.__backups = (ctx.__backups || 0) + 1; };   /* stands in for the Drive copy that Setup.gs makes */
 ['Engine','Store','Code'].forEach(f=>vm.runInContext(fs.readFileSync(__dirname+'/../../apps-script/'+f+'.gs','utf8'),ctx));
 vm.runInContext(fs.readFileSync(__dirname+'/../../staging/SeedData.gs','utf8')+';this.SEED_=SEED;this.ANE_=ANE;this.Store_=Store;this.doPost_=doPost;',ctx);
 ctx.Store_.ensureSheets(); const db = ctx.ANE_.seed(ctx.SEED_, new Date()); ctx.ANE_.migrate(db); ctx.Store_.save(db, {});

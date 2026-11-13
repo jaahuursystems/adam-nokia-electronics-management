@@ -17,9 +17,10 @@ function doPost(e) {
   var res;
   try {
     var raw = e && e.postData && e.postData.contents;
-    if (!raw || raw.length > 200000) return json_(fail_('BAD_REQUEST', 'Invalid request'));
+    if (!raw || raw.length > 6000000) return json_(fail_('BAD_REQUEST', 'Invalid request'));
     var req; try { req = JSON.parse(raw); } catch (x) { return json_(fail_('BAD_REQUEST', 'Invalid JSON')); }
     if (!req || typeof req.action !== 'string' || req.action.length > 60) return json_(fail_('BAD_REQUEST', 'Invalid request'));
+    if (raw.length > 200000 && req.action !== 'docs.save') return json_(fail_('BAD_REQUEST', 'Request too large'));
     res = handle_(req);
   } catch (ex) {
     console.error('API error: ' + (ex && ex.message));      /* never log tokens, passwords or request bodies */
@@ -51,6 +52,12 @@ function handle_(req) {
         out.push(eng.dispatch({ action: q.action, token: token, payload: (q.payload && typeof q.payload === 'object') ? q.payload : {} }));
       }
       res = { ok: true, data: out };
+    } else if (req.action === 'docs.save') {
+      /* A PDF copy of an invoice / receipt / report goes into its own private Drive folder. The engine only checks the user may do this and logs it. */
+      var pl = req.payload || {}, pdf = typeof pl.pdf_base64 === 'string' ? pl.pdf_base64 : '';
+      if (!pdf || pdf.length > 5500000 || !/^[A-Za-z0-9+\/=]+$/.test(pdf.slice(0, 200))) return fail_('BAD_REQUEST', 'Invalid document');
+      res = eng.dispatch({ action: 'docs.log', token: token, payload: { name: pl.name, kind: pl.kind }, client_txn_id: undefined });
+      if (res.ok) { try { res.data = { saved: saveDocumentCopy_(pl.name, pdf) }; } catch (dx) { console.error('Document copy failed: ' + (dx && dx.message)); res.data = { saved: false }; } }
     } else {
       res = eng.dispatch({ action: req.action, token: token, payload: (req.payload && typeof req.payload === 'object') ? req.payload : {}, client_txn_id: txn });
       /* Return fresh data with the answer so the app does not need a second request. */

@@ -16,3 +16,4 @@ Nothing else has been run yet; no other claim of testing is made.
 - npm test: 22 pass, incl. test_bulk_summary_reset.js (bulk atomicity, overdue rule, summary hides money from staff, language settings validation, owner-only reset keeps logins/branches/people, stock = 0).
 - e2e:flows at 1.2 s latency: expenses tab order + record + filter + finance history, dashboard branch summary, bulk select/sold, Somali nav/page with English documents, Somali editor, reset flow: all pass.
 - NOT tested: the real Drive backup/monthly trigger (needs your Google account), real phone layout of the filter bars.
+- PDF export: headless Chromium produced a valid 3-page A4 PDF (pdfinfo OK, rendered pages inspected: logo, table, totals, Prepared by). NOT tested: Safari/iPhone share sheet, real Drive copy.

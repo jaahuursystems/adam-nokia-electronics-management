@@ -487,6 +487,8 @@
   });
   /* What each business customer owes, split by branch. Invoiced balances are the same numbers that make up the customer's total;
      "sold, not yet invoiced" and "pending" are shown for information and are NOT added into the total. Ordinary credit stays a separate line. */
+  /* Records that a document copy was exported/shared (the file itself is stored in Drive by Code.gs). */
+  def('docs.log', 'sales.view', true, function (u, p) { var n = String(p.name || '').slice(0, 80); this.audit(u, 'DOCUMENT_EXPORTED', 'Document', n, null, { kind: String(p.kind || 'DOCUMENT').slice(0, 30) }); return { logged: true }; });
   /* ----- bulk branch item actions (all-or-nothing: if any item cannot be updated, nothing changes) ----- */
   def('branch.bulkSetStatus', 'branch.setStatus', true, function (u, p) {
     var ids = Array.isArray(p.item_ids) ? p.item_ids.filter(function (x, i, a) { return a.indexOf(x) === i; }) : [], self = this;

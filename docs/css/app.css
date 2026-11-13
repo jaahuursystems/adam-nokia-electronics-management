@@ -112,3 +112,5 @@ table.bd td{padding:9px 10px;border-bottom:1px solid var(--line)}table.bd tr.tot
 input.bk,input.bkall{width:22px;height:22px}
 /* ---- dashboard branch summary ---- */
 .bsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.bsum .card{padding:14px}.bsum .big{font-size:26px;font-weight:700}.bsum .ln{display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:14px}
+
+.doc-sign{display:flex;justify-content:space-between;gap:12px;margin-top:22px;padding-top:8px;border-top:1px dashed #9fb0c8;font-size:12px}.doc-sign .muted-s{color:#555}

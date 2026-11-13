@@ -43,3 +43,5 @@ assert.equal(call(owner, 'system.reset', { confirm: 'RESET', delete_customers: t
 // the system still works after a reset
 assert.equal(call(owner, 'stock.adjust', { product_id: 'ANE-T-001', delta: 5, reason: 'opening stock after reset', type: 'ADD' }).ok !== undefined, true);
 console.log('PASS: bulk branch actions (atomic), daily branch summary, language settings, owner-only reset');
+// documents: any signed-in staff may log an export; it lands in the audit trail
+{ const L = call(emp, 'docs.log', { name: 'INV-1.pdf', kind: 'INVOICE' }); assert.equal(L.ok, true, JSON.stringify(L)); assert.equal(call(owner, 'audit.list').data.some(a => a.action === 'DOCUMENT_EXPORTED'), true); assert.equal(e.dispatch({ action: 'docs.log', token: 'bad', payload: {} }).ok, false); console.log('PASS: document export is logged and needs a valid session'); }

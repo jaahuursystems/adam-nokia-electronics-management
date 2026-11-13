@@ -90,6 +90,9 @@ try:
     pg.click('#selall'); pg.wait_for_timeout(300); check('bulk_bar_shows', 'selected' in pg.inner_text('#bkbar'), pg.inner_text('#bkbar'))
     pg.click('[data-bulk="SOLD"]'); pg.wait_for_selector('#dlg[open]'); pg.click('#ok'); pg.wait_for_timeout(D+1800)
     check('bulk_all_sold', pg.evaluate("APP.S.collItems.filter(i=>i.status==='PENDING').length") == 0 and len(pg.query_selector_all('.bk')) == 0, pg.evaluate("APP.S.collItems.map(i=>i.status)"))
+    # documents: Prepared-by line, real PDF export, WhatsApp share saves a copy
+    r_ = pg.evaluate("""async()=>{const s={id:'SAL-T-1',at:new Date().toISOString(),customer:'C',by_name:'X',payment_method:'ZAAD_USD',total_usd_cents:100,rate_usd_slsh:10000,items:[{name:'I',product_id:'P',qty:1,unit_price_usd_cents:100}]};const h=APP.docs.sale(s);const u=await APP.docs.toPdf(h);return {prep:h.includes('Prepared by'),head:String.fromCharCode(...u.slice(0,5)),len:u.length}}""")
+    check('doc_prepared_by', r_['prep']); check('doc_real_pdf', r_['head'] == '%PDF-' and r_['len'] > 2000, r_)
     # language: Somali screens, English documents
     pg.evaluate("location.hash='#more'"); pg.wait_for_timeout(400); pg.click('#lg2'); pg.wait_for_timeout(600); side = pg.evaluate("document.querySelector('aside.side').textContent"); check('somali_nav', 'Iibi' in side and 'Kharashaadka' in side, side[:200])
     pg.evaluate("location.hash='#sales'"); pg.wait_for_timeout(D+900)

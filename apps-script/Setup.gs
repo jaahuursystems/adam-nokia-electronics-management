@@ -111,3 +111,11 @@ function installMonthlyBackupTrigger() {
 function preResetBackup() {
   var f = folderNamed_('ANE Backups - Before Reset'); DriveApp.getFileById(Store.ss().getId()).makeCopy('ANE-before-reset-' + Utilities.formatDate(new Date(), 'Africa/Mogadishu', 'yyyy-MM-dd-HHmmss'), f);
 }
+
+/* PDF copies of invoices, receipts and reports are kept in their own private folder, one sub-folder per month. */
+function saveDocumentCopy_(name, base64) {
+  var clean = String(name || 'document').replace(/[^A-Za-z0-9._ -]+/g, '-').slice(0, 80); if (!/\.pdf$/i.test(clean)) clean += '.pdf';
+  var month = Utilities.formatDate(new Date(), 'Africa/Mogadishu', 'yyyy-MM'), root = folderNamed_('ANE Document Copies'), it = root.getFoldersByName(month), sub = it.hasNext() ? it.next() : root.createFolder(month);
+  var stamp = Utilities.formatDate(new Date(), 'Africa/Mogadishu', 'yyyyMMdd-HHmmss');
+  sub.createFile(Utilities.newBlob(Utilities.base64Decode(base64), 'application/pdf', stamp + '_' + clean)); return true;
+}

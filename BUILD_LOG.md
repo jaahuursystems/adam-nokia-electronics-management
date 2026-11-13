@@ -32,3 +32,8 @@
 - Language: Somali/English toggle (More menu on phone, sidebar on desktop); business default + per-device choice; Settings → Language lets owner/manager edit Somali wording (`settings.i18n_so`). Invoices/receipts/printed reports stay English (`data-noi18n`, print area untouched).
 - Settings → Danger zone: **owner-only reset** (`system.reset`): requires typing RESET; blocked while this device has unsynced transactions; makes a private Drive backup first (aborts if backup fails). Keeps logins, products (stock set to 0), branches, technicians/assistants, rates, settings. Customers/suppliers deleted only if ticked (Walk-in and branch business accounts are always kept).
 - Backups: menu items 6 and 7 add a monthly archive in its own Drive folder ("ANE Backups - Monthly", last 24 kept); pre-reset copies go to "ANE Backups - Before Reset" (never auto-deleted).
+
+## 2026-11-12 — Prepared by + real PDF sharing
+- Every invoice / receipt / report / statement now shows "Prepared by: <signed-in user>" with date/time.
+- "Share on WhatsApp" now makes a real PDF (rendered in the browser, no external library) and opens the phone's share sheet with the file attached; if the browser can't share files it downloads the PDF and opens WhatsApp. Falls back to Print/Save as PDF if rendering fails.
+- Each exported PDF is also saved (best effort) to a private Drive folder "ANE Document Copies/<yyyy-MM>" via `docs.save`, and logged in the audit trail (`DOCUMENT_EXPORTED`).

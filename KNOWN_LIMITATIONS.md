@@ -4,3 +4,4 @@ Staging Apps Script project exists; speed improvements measured only on a fake s
 - Somali screen text is a built-in starting dictionary translated by the assistant, not a professional translation. Phrases not in the dictionary (and product/customer names) stay in English. Managers can correct wording in Settings → Language.
 - Reset cannot reach phones that still hold unsynced transactions; the reset screen blocks only on the device being used. Sync all devices first.
 - Reset does not delete Drive files already created (none are generated yet).
+- WhatsApp file sharing uses the browser share sheet (needs HTTPS and a recent Chrome/Safari). Some phones require a tap soon after the PDF is prepared; if sharing is refused, the PDF is downloaded instead. Text in the PDF is an image (not selectable).
